@@ -1,0 +1,33 @@
+{
+  "name": "mirkam-line",
+  "version": "0.2.2",
+  "type": "module",
+  "description": "Mirkam Line by Mavrika AI — five-branch voice service",
+  "main": "src/mirkam-server.js",
+  "scripts": {
+    "start": "node src/mirkam-server.js",
+    "start:legacy": "node src/server.js",
+    "dev": "node --watch src/mirkam-server.js",
+    "dev:codespaces": "bash scripts/start-codespaces.sh",
+    "test": "npm run test:mirkam",
+    "test:watch": "vitest",
+    "test:call": "vitest run tests/e2e-call.test.js",
+    "test:mirkam": "node scripts/mirkam-tests/core.test.js && node scripts/mirkam-tests/http.test.js && node scripts/mirkam-tests/staff.test.js",
+    "verify": "node scripts/verify.js",
+    "test:offline": "node scripts/offline-check.js && node scripts/phone-regressions.js && node scripts/review-regressions.js && node scripts/account-regressions.js && node scripts/help-regressions.js",
+    "test:legacy": "vitest run"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "twilio": "^5.3.0",
+    "nodemailer": "^6.9.15",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0",
+    "supertest": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
