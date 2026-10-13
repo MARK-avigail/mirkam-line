@@ -1,8 +1,19 @@
 {
   "name": "Mirkam Line development",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-24-bookworm",
-  "forwardPorts": [3000],
-  "portsAttributes": { "3000": { "label": "Mirkam Line", "visibility": "private" } },
+  "forwardPorts": [
+    3000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "Mirkam Line",
+      "visibility": "private",
+      "onAutoForward": "openBrowser"
+    }
+  },
   "postCreateCommand": "sudo apt-get update && sudo apt-get install -y python3-venv fonts-dejavu-core && bash scripts/setup-check.sh",
-  "remoteEnv": { "PYTHON_BIN": "${containerWorkspaceFolder}/.venv/bin/python" }
+  "remoteEnv": {
+    "PYTHON_BIN": "${containerWorkspaceFolder}/.venv/bin/python"
+  },
+  "postStartCommand": "bash scripts/autostart-codespaces.sh"
 }

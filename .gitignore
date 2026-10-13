@@ -8,3 +8,5 @@ data/
 .env
 *.zip
 .DS_Store
+
+.mirkam-runtime/
