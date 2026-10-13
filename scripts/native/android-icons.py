@@ -12,3 +12,13 @@ for density,size in [('mdpi',48),('hdpi',72),('xhdpi',96),('xxhdpi',144),('xxxhd
 for folder in res.glob('mipmap-anydpi*'):
     for name in ['ic_launcher.xml','ic_launcher_round.xml']:
         (folder/name).unlink(missing_ok=True)
+
+# The existing recording UI needs Android's runtime microphone permission.
+import xml.etree.ElementTree as ET
+manifest=res.parent/'AndroidManifest.xml'
+ET.register_namespace('android','http://schemas.android.com/apk/res/android')
+tree=ET.parse(manifest)
+name='{http://schemas.android.com/apk/res/android}name'
+if not any(node.attrib.get(name)=='android.permission.RECORD_AUDIO' for node in tree.getroot().findall('uses-permission')):
+    tree.getroot().append(ET.Element('uses-permission',{name:'android.permission.RECORD_AUDIO'}))
+tree.write(manifest,encoding='utf-8',xml_declaration=True)
