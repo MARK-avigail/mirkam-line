@@ -1,0 +1,57 @@
+package ai.mavrika.mirkamline;
+
+import android.content.Context;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.Config;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
+import static org.junit.Assert.*;
+
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk=28)
+public class LocalUpdatesTest {
+    private Context context;
+    private byte[] bundle;
+    @Before public void setUp() throws Exception {
+        context=RuntimeEnvironment.getApplication();
+        LocalUpdates.prefs(context).edit().clear().commit();
+        LocalUpdates.remove(LocalUpdates.root(context));
+        bundle=LocalUpdates.read(getClass().getResourceAsStream("/signed-android-update.json"),LocalUpdates.LIMIT);
+    }
+    @Test public void signedBundleStagesWithoutChangingCurrentScreen() throws Exception {
+        assertTrue(LocalUpdates.stage(context,bundle).getBoolean("available"));
+        assertEquals(0,LocalUpdates.prefs(context).getInt("current",0));
+        assertEquals(2,LocalUpdates.prefs(context).getInt("pending",0));
+    }
+    @Test public void nextLaunchLoadsLocalFilesAndReadyKeepsThem() throws Exception {
+        LocalUpdates.stage(context,bundle);
+        String path=LocalUpdates.start(context);
+        assertNotNull(path);
+        assertTrue(new File(path,"index.html").isFile());
+        assertTrue(new File(path,"native-bridge.js").isFile());
+        assertEquals(2,LocalUpdates.ready(context));
+        assertEquals(path,LocalUpdates.start(context));
+    }
+    @Test public void incompleteStartupRollsBackAndDoesNotRetrySameVersion() throws Exception {
+        LocalUpdates.stage(context,bundle);
+        assertNotNull(LocalUpdates.start(context));
+        assertNull(LocalUpdates.start(context));
+        assertFalse(LocalUpdates.stage(context,bundle).getBoolean("available"));
+    }
+    @Test public void tamperedSignatureCannotStageFiles() throws Exception {
+        JSONObject outer=new JSONObject(new String(bundle,StandardCharsets.UTF_8));
+        outer.put("signature",android.util.Base64.encodeToString(new byte[384],android.util.Base64.NO_WRAP));
+        try{LocalUpdates.stage(context,outer.toString().getBytes(StandardCharsets.UTF_8));fail("Tampered update accepted");}catch(SecurityException expected){}
+        assertEquals(0,LocalUpdates.prefs(context).getInt("pending",0));
+    }
+    @Test public void missingUpdateFilesFallBackToPackagedHome() throws Exception {
+        LocalUpdates.stage(context,bundle);
+        LocalUpdates.remove(new File(LocalUpdates.root(context),"2"));
+        assertNull(LocalUpdates.start(context));
+    }
+}

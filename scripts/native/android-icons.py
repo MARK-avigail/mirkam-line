@@ -35,3 +35,13 @@ shutil.copyfile(root/'apps/native/update-public.pem',assets/'update-public.pem')
 gradle=res.parents[2]/'build.gradle'
 text=gradle.read_text().replace('versionCode 1','versionCode 3').replace('versionName "1.0"','versionName "0.4.0"')
 gradle.write_text(text)
+
+# Run the actual Android update-store implementation in Robolectric before producing the APK.
+tests=res.parents[1]/'test/java/ai/mavrika/mirkamline'
+tests.mkdir(parents=True,exist_ok=True)
+shutil.copyfile(root/'apps/native/android-template/LocalUpdatesTest.java.fixture',tests/'LocalUpdatesTest.java')
+resources=res.parents[1]/'test/resources'
+resources.mkdir(parents=True,exist_ok=True)
+shutil.copyfile(root/'updates/android.json',resources/'signed-android-update.json')
+with gradle.open('a') as out:
+    out.write('\nandroid { testOptions { unitTests { includeAndroidResources = true } } }\ndependencies { testImplementation "junit:junit:4.13.2"; testImplementation "org.robolectric:robolectric:4.14.1" }\n')
