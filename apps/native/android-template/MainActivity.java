@@ -14,6 +14,9 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(LocalUpdatesPlugin.class);
+        String updatePath=LocalUpdates.start(this);
+        if(updatePath!=null)bridgeBuilder.setServerPath(new com.getcapacitor.ServerPath(com.getcapacitor.ServerPath.PathType.BASE_PATH,updatePath));
         super.onCreate(savedInstanceState);
         // Keep the entire WebView inside the physical system bars, cutouts and keyboard.
         // Android 15+ enforces edge-to-edge; CSS guesses cannot reliably describe these areas.

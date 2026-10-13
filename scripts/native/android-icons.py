@@ -27,7 +27,11 @@ tree.write(manifest,encoding='utf-8',xml_declaration=True)
 import shutil
 activity=res.parent/'java/ai/mavrika/mirkamline/MainActivity.java'
 activity.parent.mkdir(parents=True,exist_ok=True)
-shutil.copyfile(root/'apps/native/android-template/MainActivity.java',activity)
+for source in (root/'apps/native/android-template').glob('*.java'):
+    shutil.copyfile(source,activity.parent/source.name)
+assets=res.parent/'assets'
+assets.mkdir(exist_ok=True)
+shutil.copyfile(root/'apps/native/update-public.pem',assets/'update-public.pem')
 gradle=res.parents[2]/'build.gradle'
-text=gradle.read_text().replace('versionCode 1','versionCode 2').replace('versionName "1.0"','versionName "0.3.1"')
+text=gradle.read_text().replace('versionCode 1','versionCode 3').replace('versionName "1.0"','versionName "0.4.0"')
 gradle.write_text(text)

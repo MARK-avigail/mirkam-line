@@ -1,6 +1,6 @@
 {
   "name": "mirkam-line-native",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "main": "desktop/main.cjs",
   "scripts": {
@@ -29,7 +29,8 @@
     "files": [
       "desktop/**",
       "www/**",
-      "package.json"
+      "package.json",
+      "update-public.pem"
     ],
     "win": {
       "target": "nsis",

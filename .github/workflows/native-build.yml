@@ -22,6 +22,11 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Verify installed Windows shell opens without a server
         run: '$result = Start-Process -FilePath "apps/native/release/win-unpacked/Mirkam Line.exe" -ArgumentList "--mirkam-smoke" -Wait -PassThru; exit $result.ExitCode'
+      - name: Verify signed UI update loads inside the Windows application
+        run: |
+          $bundle = (Resolve-Path "updates/windows.json").Path
+          $result = Start-Process -FilePath "apps/native/release/win-unpacked/Mirkam Line.exe" -ArgumentList @("--mirkam-update-smoke", "--update-bundle=$bundle") -Wait -PassThru
+          exit $result.ExitCode
       - uses: actions/upload-artifact@v4
         with:
           name: Mirkam-Line-Windows-test-installer
@@ -54,6 +59,8 @@ jobs:
         with:
           path: ~/.android/debug.keystore
           key: mirkam-android-debug-signing-v1
+      - name: Require the existing test signing key; never silently change app identity
+        run: test -f ~/.android/debug.keystore
       - run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
         working-directory: apps/native/android
       - uses: actions/upload-artifact@v4
