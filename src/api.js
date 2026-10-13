@@ -1,0 +1,26 @@
+import express from 'express';
+import * as sm from './state-machine.js';
+import { getSession,saveSession,listSessions,deleteSession } from './storage.js';
+import { setup,capabilities,pilot } from './config.js';
+import { help,assist,deliver,processAnswer } from './jobs.js';
+import { transcribeAudio } from './ivr/stt.js';
+import { renderPdf,renderDocx } from './documents.js';
+import { listAccounts,createAccount,changeAccount,resetPin } from './accounts.js';
+const router=express.Router();
+export function view(s) { return {...sm.snapshot(s),capabilities:capabilities(),emailLocked:pilot()}; }
+const load=id=> { const s=getSession(id); if(!s) throw new Error('המסמך לא נמצא.'); return s; };
+const wrap=fn=>async(req,res)=> {try {await fn(req,res);} catch(e) {if(!res.headersSent) res.status(400).json({ok:false,error:e.message});}};
+router.get('/setup',(_req,res)=>res.json({ok:true,...setup()}));
+router.get('/accounts',wrap(async(_req,res)=>res.json({ok:true,accounts:listAccounts()})));
+router.post('/accounts',wrap(async(req,res)=>res.json({ok:true,...createAccount(req.body||{})})));
+router.patch('/accounts/:id',wrap(async(req,res)=>res.json({ok:true,account:changeAccount(req.params.id,req.body||{})})));
+router.post('/accounts/:id/reset-pin',wrap(async(req,res)=>res.json({ok:true,...resetPin(req.params.id)})));
+router.post('/start',wrap(async(_req,res)=> {const s=sm.newSession('desktop'); if(pilot() && process.env.TEST_EMAIL) sm.setEmail(s,process.env.TEST_EMAIL); saveSession(s);res.json({ok:true,session:view(s)});}));
+router.get('/sessions',wrap(async(_req,res)=>res.json({ok:true,sessions:listSessions().map(view)})));
+router.get('/session/:id',wrap(async(req,res)=>res.json({ok:true,session:view(load(req.params.id))})));
+const actions={pickMenu:(s,d)=>sm.pickMenu(s,d.digit),pickCourt:(s,d)=>sm.pickCourt(s,d.code),submitAnswer:(s,d)=>sm.submitAnswer(s,d.text,'typed'),confirmAnswer:sm.confirmAnswer,rejectAnswer:sm.rejectAnswer,skipField:sm.skipField,goBack:sm.goBack,editField:(s,d)=>sm.editField(s,d.index),setEmail:(s,d)=>{if(pilot() && d.email?.toLowerCase()!==process.env.TEST_EMAIL?.trim().toLowerCase())throw new Error('בבדיקה ניתן לשלוח רק לכתובת שהוגדרה בשרת.');return sm.setEmail(s,d.email);},finalize:sm.finalize,help:(s,d)=>help(s,d.text),assist,send:deliver,restore:s=>{if(s.stage!=='field_review'||!s.proposedOriginal)throw new Error('אין נוסח מקורי לשחזור.');s.pending=s.proposedOriginal;delete s.proposedOriginal;s.assistantQuestion='';}};
+router.post('/session/:id/action',wrap(async(req,res)=> {const s=load(req.params.id);const {action,data={}}=req.body||{};if(!Object.hasOwn(actions,action))throw new Error('פעולה לא מוכרת.');actions[action](s,data);if(['confirmAnswer','rejectAnswer','submitAnswer','editField','goBack','skipField'].includes(action)){delete s.proposedOriginal;s.assistantQuestion='';s.helperText='';}saveSession(s);res.json({ok:true,session:view(s)});}));
+router.post('/session/:id/audio',wrap(async(req,res)=> {const s=load(req.params.id);if(s.stage!=='field')throw new Error('הקלטה זמינה בשאלה פתוחה.');const {mime,audio}=req.body||{};if(typeof audio!=='string'||audio.length>8*1024*1024||!/^[-+\w/]*={0,2}$/.test(audio))throw new Error('הקלטה גדולה מדי או לא תקינה.');const bytes=Buffer.from(audio,'base64');processAnswer(s,'transcribe',()=>transcribeAudio(bytes,mime));res.json({ok:true,session:view(s)});}));
+for(const ext of ['pdf','docx'])router.get('/session/:id/'+ext,wrap(async(req,res)=> {const s=load(req.params.id);const doc=sm.buildDocument(s.fields);const options={test:pilot()||sm.missingFields(s).length>0};const bytes=ext==='pdf'?await renderPdf(doc,options):renderDocx(doc,options);res.set({'Content-Type':ext==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','Content-Disposition':`attachment; filename="petition.${ext}"`,'Cache-Control':'no-store'}).send(bytes);}));
+router.delete('/session/:id',wrap(async(req,res)=> {const s=load(req.params.id);if(['processing','sending'].includes(s.stage))throw new Error('המתינו לסיום הפעולה לפני מחיקה.');deleteSession(s.id);res.json({ok:true});}));
+export default router;

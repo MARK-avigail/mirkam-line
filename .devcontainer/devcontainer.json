@@ -1,0 +1,8 @@
+{
+  "name": "Mirkam Line development",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-24-bookworm",
+  "forwardPorts": [3000],
+  "portsAttributes": { "3000": { "label": "Mirkam Line", "visibility": "private" } },
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y python3-venv fonts-dejavu-core && bash scripts/setup-check.sh",
+  "remoteEnv": { "PYTHON_BIN": "${containerWorkspaceFolder}/.venv/bin/python" }
+}

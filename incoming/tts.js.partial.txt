@@ -1,0 +1,14 @@
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+
+const DATA_DIR = process.env.DATA_DIR || './data';
+const CACHE = path.join(DATA_DIR, 'tts-cache');
+if (!fs.existsSync(CACHE)) fs.mkdirSync(CACHE, { recursive: true });
+
+export function getHash(text) {
+  return crypto.createHash('md5').update(String(text)).digest('hex');
+}
+
+export function getCachedFile(hash) {
+  if (!hash || !/^[a-f0-9]{32}$

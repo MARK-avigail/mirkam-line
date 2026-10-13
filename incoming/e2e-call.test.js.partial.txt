@@ -1,0 +1,84 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import request from 'supertest';
+import express from 'express';
+import ivrRouter from '../src/ivr/twilio.js';
+import * as storage from '../src/storage.js';
+import { SCHEMA } from '../src/schema.js';
+
+vi.mock('../src/ivr/stt.js', function() {
+  return { transcribeTwilio: vi.fn(async function() { return 'תמלול לדוגמה'; }) };
+});
+
+vi.mock('../src/ivr/ai-help.js', function() {
+  return {
+    generateHelp: vi.fn(async function(params) {
+      const field = params.field;
+      return {
+        type: 'example',
+        text: field.example ? 'דוגמה: ' + field.example : 'ספרו במילים שלכם.'
+      };
+    })
+  };
+});
+
+vi.mock('../src/mailer.js', function() {
+  return { sendDocument: vi.fn(async function() { return { ok: true, messageId: 'test' }; }) };
+});
+
+const app = express();
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use('/ivr', ivrRouter);
+
+function extractSid(xml) {
+  const m = String(xml).match(/sid=([a-f0-9-]+)/);
+  if (!m) throw new Error('sid not found');
+  return m[1];
+}
+
+async function newCall(callSid) {
+  const res = await request(app).post('/ivr/voice').send({ CallSid: callSid || 'CA-test' });
+  expect(res.status).toBe(200);
+  return extractSid(res.text);
+}
+
+describe('IVR full call', function() {
+  beforeEach(function() { storage.clearAll(); });
+
+  it('1. new call shows main menu', async function() {
+    const res = await request(app).post('/ivr/voice').send({ CallSid: 'CA1' });
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<Gather');
+    expect(res.text).toContain('numDigits="1"');
+    expect(res.text).toContain('/ivr/menu');
+  });
+
+  it('2. menu 2 goes to court selection', async function() {
+    const sid = await newCall('CA2');
+    const res = await request(app).post('/ivr/menu?sid=' + sid).send({ Digits: '2' });
+    expect(res.status).toBe(200);
+    const session = storage.getSession(sid);
+    expect(session.path).toBe('petition_district');
+    expect(session.stage).toBe('court');
+    expect(res.text).toContain('/ivr/court');
+  });
+
+  it('3. press 9 in field returns help', async function() {
+    const sid = await newCall('CA3');
+    await request(app).post('/ivr/menu?sid=' + sid).send({ Digits: '2' });
+    await request(app).post('/ivr/court?sid=' + sid).send({ Digits: '2' });
+    const before = storage.getSession(sid);
+    expect(before.stage).toBe('field');
+    const res = await request(app).post('/ivr/field-key?sid=' + sid).send({ Digits: '9' });
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<Say');
+    const after = storage.getSession(sid);
+    expect(after.stage).toBe('field');
+    expect(after.index).toBe(before.index);
+  });
+
+  it('4. press 8 in field goes back', async function() {
+    const sid = await newCall('CA4');
+    await request(app).post('/ivr/menu?sid=' + sid).send({ Digits: '2' });
+    await request(app).post('/ivr/court?sid=' + sid).send({ Digits: '2' });
+    await request(app).post('/ivr/field-ke

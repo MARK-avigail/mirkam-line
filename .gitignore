@@ -1,0 +1,10 @@
+node_modules/
+.venv/
+mirkam-data/
+mirkam-admin-secret.txt
+*.sqlite*
+encryption.key
+data/
+.env
+*.zip
+.DS_Store
