@@ -1,23 +1,45 @@
 {
-  "name":"mirkam-line-native",
-  "version":"0.3.0",
-  "private":true,
-  "main":"desktop/main.cjs",
-  "scripts":{
-    "prepare:web":"node ../../scripts/native/prepare.mjs",
-    "android:add":"npm run prepare:web && cap add android",
-    "android:sync":"npm run prepare:web && cap sync android",
-    "desktop":"npm run prepare:web && electron .",
-    "windows":"npm run prepare:web && electron-builder --win nsis --x64"
+  "name": "mirkam-line-native",
+  "version": "0.3.1",
+  "private": true,
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "prepare:web": "node ../../scripts/native/prepare.mjs",
+    "android:add": "npm run prepare:web && cap add android",
+    "android:sync": "npm run prepare:web && cap sync android",
+    "desktop": "npm run prepare:web && electron .",
+    "windows": "npm run prepare:web && electron-builder --win nsis --x64"
   },
-  "dependencies":{"@capacitor/core":"8.0.0","@capacitor/android":"8.0.0"},
-  "devDependencies":{"@capacitor/cli":"8.0.0","electron":"39.2.7","electron-builder":"26.0.12","esbuild":"0.25.12"},
-  "build":{
-    "appId":"ai.mavrika.mirkamline",
-    "productName":"Mirkam Line",
-    "directories":{"output":"release"},
-    "files":["desktop/**","www/**","package.json"],
-    "win":{"target":"nsis","icon":"resources/icon.ico"},
-    "nsis":{"oneClick":false,"allowToChangeInstallationDirectory":true,"createDesktopShortcut":true,"shortcutName":"Mirkam Line"}
+  "dependencies": {
+    "@capacitor/core": "8.0.0",
+    "@capacitor/android": "8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.0.0",
+    "electron": "39.2.7",
+    "electron-builder": "26.0.12",
+    "esbuild": "0.25.12"
+  },
+  "build": {
+    "appId": "ai.mavrika.mirkamline",
+    "productName": "Mirkam Line",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**",
+      "www/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Mirkam Line"
+    }
   }
 }

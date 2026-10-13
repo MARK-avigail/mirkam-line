@@ -22,3 +22,12 @@ name='{http://schemas.android.com/apk/res/android}name'
 if not any(node.attrib.get(name)=='android.permission.RECORD_AUDIO' for node in tree.getroot().findall('uses-permission')):
     tree.getroot().append(ET.Element('uses-permission',{name:'android.permission.RECORD_AUDIO'}))
 tree.write(manifest,encoding='utf-8',xml_declaration=True)
+
+# Install the native activity that handles system bars and keyboard insets.
+import shutil
+activity=res.parent/'java/ai/mavrika/mirkamline/MainActivity.java'
+activity.parent.mkdir(parents=True,exist_ok=True)
+shutil.copyfile(root/'apps/native/android-template/MainActivity.java',activity)
+gradle=res.parents[2]/'build.gradle'
+text=gradle.read_text().replace('versionCode 1','versionCode 2').replace('versionName "1.0"','versionName "0.3.1"')
+gradle.write_text(text)

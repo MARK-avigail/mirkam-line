@@ -49,6 +49,11 @@ jobs:
       - run: npx esbuild android-bridge.js --bundle --format=iife --outfile=www/native-bridge.js && npx cap sync android
         working-directory: apps/native
       - run: python -m pip install Pillow && python scripts/native/android-icons.py
+      - name: Keep the test signing key stable for subsequent updates
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: mirkam-android-debug-signing-v1
       - run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
         working-directory: apps/native/android
       - uses: actions/upload-artifact@v4
