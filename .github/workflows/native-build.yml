@@ -20,6 +20,8 @@ jobs:
         working-directory: apps/native
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify installed Windows shell opens without a server
+        run: '$result = Start-Process -FilePath "apps/native/release/win-unpacked/Mirkam Line.exe" -ArgumentList "--mirkam-smoke" -Wait -PassThru; exit $result.ExitCode'
       - uses: actions/upload-artifact@v4
         with:
           name: Mirkam-Line-Windows-test-installer
