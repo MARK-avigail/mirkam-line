@@ -2,7 +2,7 @@
 
 ## Executed
 
-- **138 new tests passed:** 96 core/database/workflow checks, 32 HTTP/voice checks,
+- **140 new tests passed:** 96 core/database/workflow checks, 34 HTTP/voice checks,
   10 staff-role/MFA checks. No skipped or failed tests.
 - **43 existing offline regression checks passed** for retained document rendering,
   approval safeguards, identity/storage and prior adapters.
