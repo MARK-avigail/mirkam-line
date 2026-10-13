@@ -31,7 +31,7 @@ export function createMirkamServer(service){
       if(route.startsWith('/voice/')&&method==='POST')return await voice(req,res);
       if(route==='/health')return send({ok:true,service:'Mirkam Line',version:'0.2.2'});
       if(!route.startsWith('/api/')){
-        const allowed={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/install.js':'install.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png'};if(!allowed[route]||method!=='GET'){res.writeHead(404);return res.end();}
+        const allowed={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/manifest.webmanifest':'manifest.webmanifest','/sw.js':'sw.js','/install.js':'install.js','/icon-192.png':'icon-192.png','/icon-512.png':'icon-512.png','/brand-logo.png':'brand-logo.png'};if(!allowed[route]||method!=='GET'){res.writeHead(404);return res.end();}
         res.setHeader('Content-Type',route.endsWith('.webmanifest')?'application/manifest+json; charset=utf-8':route.endsWith('.png')?'image/png':route.endsWith('.js')?'text/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');return res.end(fs.readFileSync(path.join(publicDir,allowed[route])));
       }
       const origin=req.headers.origin;if(origin&&new URL(origin).host!==req.headers.host)return send({ok:false,error:'גישה מאתר אחר נחסמה.'},403);
