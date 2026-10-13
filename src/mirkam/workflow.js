@@ -1,9 +1,9 @@
 export const BRANCHES = [
-  {digit:'1',title:'עתירה חדשה',children:[{digit:'1',title:'הכנת עתירה עם עזרת AI'},{digit:'2',title:'הכנת עתירה ללא עזרת AI'}]},
-  {digit:'2',title:'הטיוטות והמסמכים שלי',children:[{digit:'1',title:'המשך טיוטה'},{digit:'2',title:'מסמכים וגרסאות'},{digit:'3',title:'היסטוריית משלוחים'}]},
-  {digit:'3',title:'שיחה עם העוזר',children:[{digit:'1',title:'שיחה חדשה'},{digit:'2',title:'המשך שיחה שמורה'}]},
-  {digit:'4',title:'קשר עם המשפחה',children:[{digit:'1',title:'הודעה חדשה'},{digit:'2',title:'תשובות שהתקבלו'},{digit:'3',title:'אנשי קשר מאושרים'}]},
-  {digit:'5',title:'שירות מרקם ליין',children:[{digit:'1',title:'הודעות החברה'},{digit:'2',title:'המינוי והשימוש שלי'},{digit:'3',title:'פנייה למשרד'}]}
+  {digit:'1',title:'כותבים עתירה',children:[{digit:'1',title:'הכנת עתירה עם עזרת AI'},{digit:'2',title:'הכנת עתירה ללא עזרת AI'}]},
+  {digit:'2',title:'המסמכים והעתירות שלי',children:[{digit:'1',title:'המשך טיוטה'},{digit:'2',title:'מסמכים וגרסאות'},{digit:'3',title:'היסטוריית משלוחים'}]},
+  {digit:'3',title:'מדברים עם ליין',children:[{digit:'1',title:'שיחה חדשה'},{digit:'2',title:'המשך שיחה שמורה'}]},
+  {digit:'4',title:'הדואר הקולי המשפחתי שלי',children:[{digit:'1',title:'הודעה חדשה'},{digit:'2',title:'תשובות שהתקבלו'},{digit:'3',title:'אנשי קשר מאושרים'}]},
+  {digit:'5',title:'עדכונים ממבריקה AI',children:[{digit:'1',title:'הודעות החברה'},{digit:'2',title:'המינוי והשימוש שלי'},{digit:'3',title:'פנייה למשרד'}]}
 ];
 export const TOPICS=[
   {key:'subject',label:'מה הנושא שעליו תרצו להגיש עתירה?',required:true},

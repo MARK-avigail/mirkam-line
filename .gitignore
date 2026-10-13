@@ -10,3 +10,7 @@ data/
 .DS_Store
 
 .mirkam-runtime/
+
+apps/native/www/
+apps/native/release/
+apps/native/android/
