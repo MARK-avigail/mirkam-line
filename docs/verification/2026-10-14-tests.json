@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-14",
+  "command": "npm test",
+  "tests": 520,
+  "passed": 520,
+  "failed": 0,
+  "suites": {
+    "core": 100,
+    "http": 38,
+    "staff": 11,
+    "pwa": 16,
+    "native": 31,
+    "updates": 23,
+    "ui": 25,
+    "access": 201,
+    "provider-audit": 75
+  },
+  "liveCalls": 0,
+  "liveEmails": 0,
+  "liveFaxes": 0,
+  "liveAIRequests": 0,
+  "providerResponses": "mocked",
+  "ui": "VM/fake DOM; not real device",
+  "sha256": {
+    "src/mirkam/staff.js": "6853d00aa9f7a3be8058a5475301572ff1e00e5739249f4fc2f75bb0207decab",
+    "src/mirkam/service.js": "5ac7f986fcdfd43f434459a41fbb686eeee194a2dd7869af64643794b15535bb",
+    "src/mirkam/providers.js": "fc6e95040ffa62fb8a9b3736e93b749221fd6ac2c911c438d35d4498e7bb5a3c",
+    "scripts/mirkam-tests/access.test.js": "06144f9c6749d3278983af44296f7470d5860e80e9335ab12d78523aa4144d66",
+    "scripts/mirkam-tests/provider-audit.test.js": "b83efa4c3fc61fc87e40fc73fe0b348bcc7665e75df92171de9b8e84bae0c32f",
+    "scripts/mirkam-tests/core.test.js": "8bf535340d671f900dd6e2c81e37d7cc65f7f9304261699f3c8a22fa04d41a30",
+    "package.json": "6d1ab8e5c07d588412dfcfe4e0400b04d875e633e66becf20af3803655a02e18"
+  }
+}

@@ -18,3 +18,15 @@ for(const [route,method] of routes.filter(([,m])=>m==='GET'))test(`expired owner
 test('authorized user list omits login code and password material',async t=>{const {service,server}=fixture(t);service.identity.register({name:'בדיקה',identity:'123456789',prison:'בדיקה',prisonerNumber:'123'},'owner');const r=await request(server,'/api/admin/users','GET',master);assert.equal(r.status,200);assert.equal(r.body.items.length,1);for(const k of ['code','pin','pinHash','pinSalt','password','passwordHash','mfaSecret'])assert.equal(r.body.items[0][k],undefined,k);});
 for(const route of ['conversations','drafts','messages'])test(`owner can inspect ${route} through management API`,async t=>{const {server}=fixture(t);const r=await request(server,'/api/admin/'+route,'GET',master);assert.equal(r.status,200);assert.deepEqual(r.body.items,[]);});
 test('served HTML marks internal navigation and member login hidden before JavaScript',async t=>{const {server}=fixture(t);const html=fs.readFileSync(new URL('../../public/mirkam/index.html',import.meta.url),'utf8');for(const id of ['suite-sidebar','login','workspace','admin','bootstrap','app-header','app-footer'])assert.match(html,new RegExp('<[^>]+id="'+id+'"[^>]*hidden'));assert.match(html,/<section id="staff-gate">/);});
+
+// Lifecycle and malformed-role checks use the real HTTP handler and persisted sessions.
+for(const actor of ['revoked','disabled','expired-write','constructor','__proto__'])for(const [route,method] of routes)test(`${actor} cannot access ${method} admin/${route}`,async t=>{
+ const {service,server,store}=fixture(t),r=service.staff.createOwner('Owner','בדיקה','owner'),session=service.staff.login(r.id,r.password);
+ if(actor==='revoked')service.staff.logout(session.token);
+ else if(actor==='disabled'){const u=store.get('staff',r.id);store.put('staff',{...u,active:false});}
+ else if(actor==='expired-write'){const token=store.list('staff-token')[0];store.put('staff-token',{...token,expiresAt:0});}
+ else {const u=store.get('staff',r.id);store.put('staff',{...u,role:actor});}
+ const result=await request(server,'/api/admin/'+route,method,session.token);
+ assert.equal(result.status,['constructor','__proto__'].includes(actor)?403:401);
+ assert.equal(result.body.items,undefined);assert.equal(store.list('staff').length,1);
+});

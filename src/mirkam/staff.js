@@ -1,7 +1,7 @@
 import {randomBytes,scryptSync,timingSafeEqual,createHash} from 'node:crypto';
 const hash=x=>createHash('sha256').update(String(x)).digest('hex');
 export const PERMISSIONS={owner:['*'],support:['users','contacts','tickets','status'],billing:['membership','payments','status']};
-export function permitted(role,path){return (path==='logout'&&Boolean(PERMISSIONS[role]))||PERMISSIONS[role]?.some(p=>p==='*'||path===p||path.startsWith(p+'/'))||false;}
+export function permitted(role,path){if(!Object.hasOwn(PERMISSIONS,role)||typeof path!=='string')return false;return path==='logout'||PERMISSIONS[role].some(p=>p==='*'||path===p||path.startsWith(p+'/'));}
 export class Staff {
   constructor(store){this.store=store;}
   create(name,role,actor){if(typeof name!=='string'||!name.trim()||!['support','billing'].includes(role))throw Error('שם או תפקיד צוות אינם תקינים.');const password=randomBytes(24).toString('hex'),salt=randomBytes(16).toString('hex');const r=this.store.create('staff','staff',{name:name.trim(),role,active:true,passwordSalt:salt,passwordHash:scryptSync(password,salt,32).toString('hex')});this.store.audit(actor,'staff.created',r.id);return {id:r.id,name:r.name,role,password};}
