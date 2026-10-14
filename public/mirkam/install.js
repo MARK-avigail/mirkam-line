@@ -43,6 +43,7 @@ function checkOfflineReady(){
   controller.postMessage({type:'OFFLINE_STATUS'},[channel.port2]);
 }
 retryConnection.addEventListener('click',checkConnection);
+window.addEventListener('mirkam-server-saved',checkConnection);
 window.addEventListener('online',checkConnection);
 window.addEventListener('offline',checkConnection);
 window.addEventListener('focus',checkConnection);
