@@ -69,7 +69,7 @@ export function createVoice(service){
         }else if(c.phase==='branch'){
           const b=BRANCHES.find(b=>b.digit===c.branch);
           if(!digit)out=gather(b.children.map(s=>`${s.title}, הקישו ${s.digit}`).join('. '));
-          else if(b.digit==='1'&&['1','2'].includes(digit)){const d=service.createDraft(uid,digit==='1');c=save({...c,draftId:d.id,phase:'draft',reviewIndex:0,reviewHash:null});out=redirect();}
+          else if(b.digit==='1'&&['1','2'].includes(digit)){const d=service.createDraft(uid,digit==='1');c=save({...c,draftId:d.id,phase:'draft',courtPage:0,reviewIndex:0,reviewHash:null});out=redirect();}
           else if(b.digit==='2'&&digit==='1'){c=save({...c,phase:'draft-list',listPage:0});out=redirect();}
           else if(b.digit==='2'&&['2','3'].includes(digit)){const items=store.list(digit==='2'?'version':'delivery',uid);out=say(items.length?items.slice(0,8).map((v,i)=>`${i+1}. ${digit==='2'?'גרסת מסמך':v.status}. ${new Date(v.createdAt).toLocaleDateString('he-IL')}`).join('. '):'אין פריטים שמורים.')+gather('לחזרה לתפריט הראשי הקישו 8.');}
           else if(b.digit==='3'){if(digit==='1'){const conv=service.newConversation(uid,'שיחה '+new Date().toLocaleDateString('he-IL'));c=save({...c,conversationId:conv.id,phase:'chat'});out=redirect();}else if(digit==='2'){c=save({...c,phase:'conversation-list',listPage:0});out=redirect();}else out=redirect();}
@@ -90,7 +90,13 @@ export function createVoice(service){
         }else if(c.phase==='draft'){
           const d=service.viewDraft(c.draftId,uid);
           if(d.stage==='profile'){if(digit==='1'){service.confirmProfile(d.id,uid,d.revision);out=redirect();}else out=gather(`שם: ${user.name}. מספר זהות: ${user.identity.split('').join(' ')}. מספר אסיר: ${user.prisonerNumber}. בית סוהר: ${user.prison}. לאישור הפרטים הקישו 1. לתיקון דרך המשרד הקישו 8.`);}
-          else if(d.stage==='court'){const targets=service.destinations().filter(t=>t.prisons.includes(user.prison)),t=targets[Number(digit)-1];if(digit&&t){service.chooseCourt(d.id,uid,t.id,d.revision);out=redirect();}else out=targets.length?gather(targets.slice(0,9).map((t,i)=>`${t.name}, הקישו ${i+1}`).join('. ')):say('התאמת בית המשפט עדיין לא אומתה במשרד. הטיוטה נשמרה.')+gather('לחזרה הקישו 8.');}
+          else if(d.stage==='court'){
+            const targets=service.destinations().filter(t=>t.prisons.includes(user.prison)),pages=Math.max(1,Math.ceil(targets.length/6));
+            let page=Math.min(c.courtPage||0,pages-1);if(digit==='0')page=(page+1)%pages;
+            c=save({...c,courtPage:page});const visible=targets.slice(page*6,page*6+6),target=/^[1-6]$/.test(digit)?visible[Number(digit)-1]:null;
+            if(target){service.chooseCourt(d.id,uid,target.id,d.revision);out=redirect();}
+            else out=targets.length?gather(visible.map((t,i)=>`${t.name}, הקישו ${i+1}`).join('. ')+(pages>1?`. עמוד ${page+1} מתוך ${pages}. לרשימה הבאה 0.`:'')+' לחזרה 8. לשמירה ויציאה 7.'):say('התאמת בית המשפט עדיין לא אומתה במשרד. הטיוטה נשמרה.')+gather('לחזרה הקישו 8.');
+          }
           else if(d.stage==='dialogue'){
             if(digit==='0'){service.skip(d.id,uid,d.revision);out=redirect();}
             else if(digit==='9'){c=job(c,'coach',async()=>{const result=await service.coach(d.id,uid);return {phase:'draft',speech:result.helper};});out=redirect();}
