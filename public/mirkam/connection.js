@@ -4,11 +4,17 @@
   const originalFetch=window.fetch.bind(window);
   const key='mirkam.server.origin';
   function endpoint(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('הזינו כתובת שרת HTTPS בלבד, ללא נתיב או סיסמה.');return url.origin;}
+  function requestHeaders(server,headers={}){
+    const result={...headers};
+    // Windows 0.4 restricts bridge headers; its Node transport does not use a browser user agent.
+    if(window.mirkamNative.platform==='android'&&new URL(server).hostname.endsWith('.app.github.dev'))result['X-GitHub-Codespaces-Skip-Anti-Phishing']='true';
+    return result;
+  }
   window.fetch=async(input,options={})=>{
     if(typeof input!=='string'||!/^\/(api\/|health(?:$|\?))/.test(input))return originalFetch(input,options);
     const server=window.mirkamNative.serverOrigin||localStorage.getItem(key);if(!server)throw Error('יש להגדיר כתובת שרת בהגדרות החיבור. מסך הבית זמין גם ללא שרת.');
     if(options.signal?.aborted)throw new DOMException('Aborted','AbortError');
-    const response=await window.mirkamNative.request({endpoint:endpoint(server),route:input,method:options.method||'GET',headers:options.headers||{},body:options.body});
+    const response=await window.mirkamNative.request({endpoint:endpoint(server),route:input,method:options.method||'GET',headers:requestHeaders(server,options.headers),body:options.body});
     if(options.signal?.aborted)throw new DOMException('Aborted','AbortError');
     const bytes=Uint8Array.from(atob(response.base64),c=>c.charCodeAt(0));
     return new Response([204,205,304].includes(response.status)?null:bytes,{status:response.status,headers:response.headers});
@@ -27,7 +33,7 @@
         const value=endpoint(field.value.trim());
         notice.textContent='בודק את השרת…';
         const response=await Promise.race([
-          window.mirkamNative.request({endpoint:value,route:'/health',method:'GET',headers:{}}),
+          window.mirkamNative.request({endpoint:value,route:'/health',method:'GET',headers:requestHeaders(value)}),
           new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('השרת לא ענה בזמן. בדקו שהשרת פועל ושיש חיבור לאינטרנט.')),10000);})
         ]);
         if([301,302,303,307,308,401,403].includes(response.status))throw Error('הגישה לשרת חסומה או דורשת התחברות נוספת. ב־Codespaces בדקו אם פורט 3000 פרטי.');
