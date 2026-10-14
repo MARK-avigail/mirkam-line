@@ -43,7 +43,8 @@ export function createMirkamServer(service){
         if(suffix==='staff'&&method==='POST')return send({ok:true,result:service.staff.create(data.name,data.role,actor)});
         if(suffix==='membership'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>({id:u.id,name:u.name,...service.membership(u.id)}))});
         if(suffix==='payments'&&method==='GET')return send({ok:true,items:service.store.list('payment')});
-        if(suffix==='users'&&method==='GET')return send({ok:true,items:service.store.list('user').map(safeUser)});
+        if(['conversations','drafts','messages'].includes(suffix)&&method==='GET'){const kind={conversations:'conversation',drafts:'draft',messages:'message'}[suffix];return send({ok:true,items:service.store.list(kind)});}
+        if(suffix==='users'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>{const {code,...profile}=safeUser(u);return profile;})});
         if(suffix==='users'&&method==='POST'){if(data.freeMembership===true&&auth.role!=='owner')throw Error('רק בעלת המערכת יכולה לאשר הטבת מינוי.');return send({ok:true,...service.identity.register(data,actor)});}
         if(suffix==='destinations'&&method==='POST')return send({ok:true,item:service.setDestination(data,actor)});
         if(suffix==='contacts'&&method==='POST')return send({ok:true,item:service.approveContact(data.userId,data,actor)});

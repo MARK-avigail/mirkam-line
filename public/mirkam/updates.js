@@ -3,7 +3,7 @@
   if(!window.mirkamNative?.updateCheck)return;
   document.addEventListener('DOMContentLoaded',async()=>{
     const section=document.createElement('details'),summary=document.createElement('summary'),status=document.createElement('p'),button=document.createElement('button');
-    summary.textContent='עדכוני התוכנה';button.textContent='בדיקת עדכונים';button.type='button';status.setAttribute('role','status');status.textContent='שיפורי ממשק יורדים ברקע ויופעלו בפתיחה הבאה.';
+    section.className='update-settings';summary.textContent='עדכוני התוכנה';button.textContent='בדיקת עדכונים';button.type='button';status.setAttribute('role','status');status.textContent='שיפורי ממשק יורדים ברקע ויופעלו בפתיחה הבאה.';
     section.append(summary,status,button);document.querySelector('main').append(section);
     if(window.mirkamAppReady){try{const info=await window.mirkamNative.updateReady();status.textContent=`גרסת ממשק ${info.version}. שיפורים יופעלו בפתיחה הבאה.`;}catch{}}
     let checking=false;let currentVersion="";try{currentVersion=(await window.mirkamNative.updateReady()).version;}catch{}
