@@ -1,4 +1,5 @@
-<!-- Repository motto: רוקמים עולמות -->
+> תוכנית המוצר הפעילה והחלטות עדכניות: [CURRENT-PLAN-HE.md](docs/CURRENT-PLAN-HE.md). מסמכי דרישות ישנים נשמרים כמקורות; שינויים מפורשים במסמך הפעיל גוברים.
+
 # Mirkam Line — מרקם ליין
 
 Mirkam Line by Mavrika AI is the new five-branch service. npm start now runs

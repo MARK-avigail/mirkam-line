@@ -70,10 +70,10 @@ export function createVoice(service){
           const b=BRANCHES.find(b=>b.digit===c.branch);
           if(!digit)out=gather(b.children.map(s=>`${s.title}, הקישו ${s.digit}`).join('. '));
           else if(b.digit==='1'&&['1','2'].includes(digit)){const d=service.createDraft(uid,digit==='1');c=save({...c,draftId:d.id,phase:'draft',reviewIndex:0,reviewHash:null});out=redirect();}
-          else if(b.digit==='2'&&digit==='1'){c=save({...c,phase:'draft-list'});out=redirect();}
+          else if(b.digit==='2'&&digit==='1'){c=save({...c,phase:'draft-list',listPage:0});out=redirect();}
           else if(b.digit==='2'&&['2','3'].includes(digit)){const items=store.list(digit==='2'?'version':'delivery',uid);out=say(items.length?items.slice(0,8).map((v,i)=>`${i+1}. ${digit==='2'?'גרסת מסמך':v.status}. ${new Date(v.createdAt).toLocaleDateString('he-IL')}`).join('. '):'אין פריטים שמורים.')+gather('לחזרה לתפריט הראשי הקישו 8.');}
-          else if(b.digit==='3'){if(digit==='1'){const conv=service.newConversation(uid,'שיחה '+new Date().toLocaleDateString('he-IL'));c=save({...c,conversationId:conv.id,phase:'chat'});out=redirect();}else if(digit==='2'){c=save({...c,phase:'conversation-list'});out=redirect();}else out=redirect();}
-          else if(b.digit==='4'&&digit==='1'){c=save({...c,phase:'contact-list'});out=redirect();}
+          else if(b.digit==='3'){if(digit==='1'){const conv=service.newConversation(uid,'שיחה '+new Date().toLocaleDateString('he-IL'));c=save({...c,conversationId:conv.id,phase:'chat'});out=redirect();}else if(digit==='2'){c=save({...c,phase:'conversation-list',listPage:0});out=redirect();}else out=redirect();}
+          else if(b.digit==='4'&&digit==='1'){c=save({...c,phase:'contact-list',listPage:0});out=redirect();}
           else if(b.digit==='4'&&digit==='2'){out=say(store.list('message',uid).filter(m=>m.direction==='incoming').slice(0,8).map(m=>m.text).join('. ')||'אין תשובות חדשות.')+gather('לחזרה הקישו 8.');}
           else if(b.digit==='4'&&digit==='3'){out=say(service.contacts(uid).map(x=>x.name).join('. ')||'אין אנשי קשר מאושרים. אפשר לפנות למשרד.')+gather('לחזרה הקישו 8.');}
           else if(b.digit==='5'&&digit==='1'){out=say(store.list('announcement','all').filter(a=>a.active).map(a=>a.text).join('. ')||'אין הודעות חדשות.')+gather('לחזרה הקישו 8.');}
@@ -81,8 +81,12 @@ export function createVoice(service){
           else if(b.digit==='5'&&digit==='3'){c=save({...c,phase:'ticket'});out=redirect();}else out=redirect();
         }else if(['draft-list','conversation-list','contact-list'].includes(c.phase)){
           const items=c.phase==='draft-list'?store.list('draft',uid).filter(d=>!['sending','archived','delivery-unknown'].includes(d.stage)):c.phase==='conversation-list'?store.list('conversation',uid):service.contacts(uid);
-          const chosen=items[Number(digit)-1];if(digit&&chosen){c=save({...c,...(c.phase==='draft-list'?{draftId:chosen.id,phase:'draft'}:c.phase==='conversation-list'?{conversationId:chosen.id,phase:'chat'}:{contactId:chosen.id,phase:'family-compose'})});out=redirect();}
-          else out=items.length?gather(items.slice(0,9).map((x,i)=>`${x.name||x.answers?.subject||'טיוטה שמורה'}, הקישו ${i+1}`).join('. ')):say('אין פריטים שמורים.')+gather('לחזרה הקישו 8.');
+          const pages=Math.max(1,Math.ceil(items.length/6));let page=Math.min(c.listPage||0,pages-1);
+          if(digit==='0')page=(page+1)%pages;
+          c=save({...c,listPage:page});const visible=items.slice(page*6,page*6+6);
+          const chosen=/^[1-6]$/.test(digit)?visible[Number(digit)-1]:null;
+          if(chosen){c=save({...c,...(c.phase==='draft-list'?{draftId:chosen.id,phase:'draft'}:c.phase==='conversation-list'?{conversationId:chosen.id,phase:'chat'}:{contactId:chosen.id,phase:'family-compose'})});out=redirect();}
+          else out=items.length?gather(visible.map((x,i)=>`${x.name||x.answers?.subject||'טיוטה שמורה'}, הקישו ${i+1}`).join('. ')+(pages>1?`. עמוד ${page+1} מתוך ${pages}. לרשימה הבאה הקישו 0.`:'')+' לחזרה 8. לשמירה ויציאה 7.'):say('אין פריטים שמורים.')+gather('לחזרה הקישו 8.');
         }else if(c.phase==='draft'){
           const d=service.viewDraft(c.draftId,uid);
           if(d.stage==='profile'){if(digit==='1'){service.confirmProfile(d.id,uid,d.revision);out=redirect();}else out=gather(`שם: ${user.name}. מספר זהות: ${user.identity.split('').join(' ')}. מספר אסיר: ${user.prisonerNumber}. בית סוהר: ${user.prison}. לאישור הפרטים הקישו 1. לתיקון דרך המשרד הקישו 8.`);}
