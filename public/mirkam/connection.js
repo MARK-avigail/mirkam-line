@@ -10,13 +10,19 @@
     if(window.mirkamNative.platform==='android'&&new URL(server).hostname.endsWith('.app.github.dev'))result['X-GitHub-Codespaces-Skip-Anti-Phishing']='true';
     return result;
   }
+  function responseBytes(response){
+    const type=Object.entries(response.headers||{}).find(([key])=>key.toLowerCase()==='content-type')?.[1]||'';
+    // Capacitor Android parses application/json even when arraybuffer was requested.
+    if(window.mirkamNative.platform==='android'&&String(type).toLowerCase().includes('application/json'))return new TextEncoder().encode(JSON.stringify(response.base64));
+    return Uint8Array.from(atob(response.base64),c=>c.charCodeAt(0));
+  }
   window.fetch=async(input,options={})=>{
     if(typeof input!=='string'||!/^\/(api\/|health(?:$|\?))/.test(input))return originalFetch(input,options);
     const server=window.mirkamNative.serverOrigin||localStorage.getItem(key);if(!server)throw Error('יש להגדיר כתובת שרת בהגדרות החיבור. מסך הבית זמין גם ללא שרת.');
     if(options.signal?.aborted)throw new DOMException('Aborted','AbortError');
     const response=await window.mirkamNative.request({endpoint:endpoint(server),route:input,method:options.method||'GET',headers:requestHeaders(server,options.headers),body:options.body});
     if(options.signal?.aborted)throw new DOMException('Aborted','AbortError');
-    const bytes=Uint8Array.from(atob(response.base64),c=>c.charCodeAt(0));
+    const bytes=responseBytes(response);
     return new Response([204,205,304].includes(response.status)?null:bytes,{status:response.status,headers:response.headers});
   };
   document.addEventListener('DOMContentLoaded',()=>{
@@ -38,7 +44,7 @@
         ]);
         if([301,302,303,307,308,401,403].includes(response.status))throw Error('הגישה לשרת חסומה או דורשת התחברות נוספת. ב־Codespaces בדקו אם פורט 3000 פרטי.');
         if(response.status!==200)throw Error('השרת החזיר שגיאה '+response.status+'. בדקו את כתובת השירות ושהשרת פועל.');
-        let data;try{data=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(response.base64),c=>c.charCodeAt(0))));}catch{throw Error('הכתובת החזירה דף במקום שירות מרקם ליין. ייתכן שזה מסך התחברות של GitHub.');}
+        let data;try{data=JSON.parse(new TextDecoder().decode(responseBytes(response)));}catch{throw Error('הכתובת החזירה דף במקום שירות מרקם ליין. ייתכן שזה מסך התחברות של GitHub.');}
         if(data.ok!==true||data.service!=='Mirkam Line')throw Error('הכתובת אינה מחזירה שירות מרקם ליין תקין.');
         if(window.mirkamNative.saveServer&&!window.mirkamNative.saveServer(value))throw Error('שמירת הכתובת לא הושלמה.');
         localStorage.setItem(key,value);field.value=value;
