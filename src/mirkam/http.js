@@ -2,8 +2,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { timingSafeEqual,createHash } from 'node:crypto';
-import { totp,safeUser } from './identity.js';
+import { timingSafeEqual } from 'node:crypto';
+import { safeUser } from './identity.js';
 import { BRANCHES } from './workflow.js';
 import { renderPdf,renderDocx } from '../documents.js';
 import { createVoice } from './voice.js';
@@ -15,10 +15,6 @@ async function body(req){let b='';for await(const chunk of req){b+=chunk.toStrin
 function staff(req,service){
   const master=process.env.MIRKAM_ADMIN_TOKEN;
   if(!master||master.length<32||!equal(req.headers.authorization,'Bearer '+master))return service.staff.authenticate((req.headers.authorization||'').replace(/^Bearer /,''));
-  const secret=process.env.MIRKAM_ADMIN_TOTP_SECRET;
-  if(process.env.NODE_ENV==='production'&&!secret)throw Error('MFA לניהול אינו מוגדר.');
-  if(secret){const value=req.headers['x-mirkam-otp'];if(!value||![-30000,0,30000].some(n=>equal(String(value),totp(secret,Date.now()+n))))throw Object.assign(Error('נדרש קוד אימות נוסף.'),{status:401});
-    if(req.method!=='GET'){const id=createHash('sha256').update(String(value)).digest('hex');const used=service.store.get('mfa-use',id);if(used&&used.expiresAt>Date.now())throw Error('קוד האימות כבר שימש לפעולה. המתינו לקוד חדש.');if(used)service.store.remove('mfa-use',id);service.store.create('mfa-use','staff',{id,expiresAt:Date.now()+90000});}}
   return {actor:'owner',role:'owner'};
 }
 export function createMirkamServer(service){
@@ -37,7 +33,7 @@ export function createMirkamServer(service){
       const origin=req.headers.origin;if(origin&&new URL(origin).host!==req.headers.host)return send({ok:false,error:'גישה מאתר אחר נחסמה.'},403);
       const data=['POST','PUT','PATCH'].includes(method)?await body(req):{};
       if(route==='/api/login'&&method==='POST')return send({ok:true,...service.identity.login(data.code,data.pin,req.socket.remoteAddress||'unknown')});
-      if(route==='/api/staff-login'&&method==='POST')return send({ok:true,...service.staff.login(data.id,data.password,data.otp)});
+      if(route==='/api/staff-login'&&method==='POST')return send({ok:true,...service.staff.login(data.id,data.password)});
       if(route.startsWith('/api/admin/')){
         const auth=staff(req,service),actor=auth.actor,suffix=route.slice(11);
         if(!permitted(auth.role,suffix))return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
