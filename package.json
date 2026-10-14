@@ -2,7 +2,7 @@
   "name": "mirkam-line",
   "version": "0.2.2",
   "type": "module",
-  "description": "Mirkam Line by Mavrika AI \u2014 five-branch voice service",
+  "description": "Mirkam Line by Mavrika AI — five-branch voice service",
   "main": "src/mirkam-server.js",
   "scripts": {
     "start": "node src/mirkam-server.js",
@@ -12,7 +12,7 @@
     "test": "npm run test:mirkam",
     "test:watch": "vitest",
     "test:call": "vitest run tests/e2e-call.test.js",
-    "test:mirkam": "node scripts/mirkam-tests/core.test.js && node scripts/mirkam-tests/http.test.js && node scripts/mirkam-tests/staff.test.js && node scripts/mirkam-tests/pwa.test.js && node scripts/native/prepare.mjs && node scripts/mirkam-tests/native.test.js && node scripts/mirkam-tests/updates.test.js",
+    "test:mirkam": "node scripts/mirkam-tests/core.test.js && node scripts/mirkam-tests/http.test.js && node scripts/mirkam-tests/staff.test.js && node scripts/mirkam-tests/pwa.test.js && node scripts/native/prepare.mjs && node scripts/mirkam-tests/native.test.js && node scripts/mirkam-tests/updates.test.js && node scripts/mirkam-tests/ui.test.js",
     "verify": "node scripts/verify.js",
     "test:offline": "node scripts/offline-check.js && node scripts/phone-regressions.js && node scripts/review-regressions.js && node scripts/account-regressions.js && node scripts/help-regressions.js",
     "test:legacy": "vitest run",
