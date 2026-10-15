@@ -12,7 +12,7 @@
     "test": "npm run test:mirkam",
     "test:watch": "vitest",
     "test:call": "vitest run tests/e2e-call.test.js",
-    "test:mirkam": "node scripts/mirkam-tests/core.test.js && node scripts/mirkam-tests/http.test.js && node scripts/mirkam-tests/staff.test.js && node scripts/mirkam-tests/pwa.test.js && node scripts/native/prepare.mjs && node scripts/mirkam-tests/native.test.js && node scripts/mirkam-tests/updates.test.js && node scripts/mirkam-tests/ui.test.js && node scripts/mirkam-tests/access.test.js && node scripts/mirkam-tests/provider-audit.test.js",
+    "test:mirkam": "node scripts/mirkam-tests/core.test.js && node scripts/mirkam-tests/http.test.js && node scripts/mirkam-tests/staff.test.js && node scripts/mirkam-tests/pwa.test.js && node scripts/native/prepare.mjs && node scripts/mirkam-tests/native.test.js && node scripts/mirkam-tests/updates.test.js && node scripts/mirkam-tests/ui.test.js && node scripts/mirkam-tests/access.test.js && node scripts/mirkam-tests/provider-audit.test.js && node scripts/mirkam-tests/migration-audit.test.js",
     "verify": "node scripts/verify.js",
     "test:offline": "node scripts/offline-check.js && node scripts/phone-regressions.js && node scripts/review-regressions.js && node scripts/account-regressions.js && node scripts/help-regressions.js",
     "test:legacy": "vitest run",

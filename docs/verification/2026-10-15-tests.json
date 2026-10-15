@@ -1,0 +1,9 @@
+{
+  "command": "npm test",
+  "exit_code": 0,
+  "tests": 609,
+  "pass": 609,
+  "fail": 0,
+  "skipped": 0,
+  "scope": "Local automated tests; no live telephony, rented-server benchmark or physical-device certification."
+}
