@@ -53,7 +53,8 @@ export function createMirkamServer(service){
         if(suffix==='cleanup'&&method==='POST')return send({ok:true,items:await service.cleanup()});
         if(suffix==='audit'&&method==='GET')return send({ok:true,items:service.store.list('audit')});
         if(suffix==='tickets'&&method==='GET')return send({ok:true,items:service.store.list('ticket')});
-        if(suffix==='status'&&method==='GET')return send({ok:true,aiConfigured:Boolean(process.env.OPENAI_API_KEY),emailConfigured:Boolean(process.env.SMTP_HOST&&process.env.SMTP_USER&&process.env.SMTP_PASS),faxConfigured:false,paymentConfigured:false,liveVerified:false});
+        if(suffix==='line'&&method==='GET')return send({ok:true,branches:BRANCHES,channel:'telephone',liveVerified:false});
+        if(suffix==='status'&&method==='GET')return send({ok:true,aiConfigured:Boolean(process.env.OPENAI_API_KEY),emailConfigured:Boolean(process.env.SMTP_HOST&&process.env.SMTP_USER&&process.env.SMTP_PASS&&[465,587].includes(Number(process.env.SMTP_PORT||587))),voiceConfigured:Boolean(process.env.TWILIO_AUTH_TOKEN&&/^https:\/\//.test(process.env.BASE_URL||'')),faxConfigured:false,paymentConfigured:false,liveVerified:false});
         const match=suffix.match(/^users\/([a-f0-9-]+)\/(reset|status)$/);if(match&&method==='POST')return send({ok:true,result:match[2]==='reset'?service.identity.reset(match[1],actor):service.identity.suspend(match[1],data.active,actor)});
         throw Error('פעולת ניהול לא מוכרת.');
       }

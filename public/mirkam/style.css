@@ -10,3 +10,6 @@ body{background:radial-gradient(ellipse at 25% 0%,#e5f6f2 0,transparent 48%),var
 body.locked main{max-width:520px;margin:8vh auto}body.locked .connection-panel,body.locked #offline-ready,body.locked #install-app,body.locked .server-settings,body.locked .update-settings{display:none!important}#staff-gate{margin:0 auto}body.locked #status:empty{display:none}
 
 body.locked{display:block}
+
+/* Management screens must remain readable on narrow phones. */
+.management-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.management-grid button{text-align:start;min-height:64px}.connection-card h3,.branch-card h3{margin:0 0 8px}.connection-card p,.branch-card p{margin:6px 0}#admin>.actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}#admin>.actions button{min-width:0;overflow-wrap:normal;word-break:normal;padding:12px}.suite-sidebar button{word-break:normal}#admin-pane{min-width:0}#admin-pane pre{max-height:65vh;overflow:auto}@media(max-width:760px){.suite-sidebar nav{grid-template-columns:repeat(2,minmax(0,1fr))}.suite-sidebar nav button{font-size:14px}#admin>.actions{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:360px){#admin>.actions,.management-grid{grid-template-columns:1fr}}

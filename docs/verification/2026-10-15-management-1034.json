@@ -1,0 +1,8 @@
+{
+  "tests": 1034,
+  "pass": 1034,
+  "fail": 0,
+  "skipped": 0,
+  "scope": "Local application suite; not live telephone/fax/payment acceptance or deployment verification",
+  "new_tests": 233
+}
