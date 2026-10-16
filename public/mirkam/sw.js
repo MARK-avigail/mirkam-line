@@ -35,7 +35,7 @@ self.addEventListener('fetch',event=>{
     const cache=await caches.open(SHELL_CACHE),saved=await cache.match(url.pathname);
     try{
       const r=await fetch(event.request,{signal:AbortSignal.timeout(4000)});
-      if(await valid(r,url.pathname)){await cache.put(url.pathname,r.clone());return r;}
+      if(await valid(r,url.pathname)){try{await cache.put(url.pathname,r.clone());}catch{/* A cache quota failure must not discard a valid online response. */}return r;}
       if(saved)return saved;
       return r;
     }catch{

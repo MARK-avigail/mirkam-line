@@ -1,0 +1,12 @@
+{
+  "command": "npm test",
+  "results": {
+    "tests": 1108,
+    "pass": 1108,
+    "fail": 0,
+    "skipped": 0
+  },
+  "newTests": 6,
+  "reproducedBeforeFix": 4,
+  "productionFaultInjection": false
+}

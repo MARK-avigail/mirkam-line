@@ -14,7 +14,20 @@ export function createVoice(service){
   function job(c,kind,task){
     const j=store.create('voice-job',c.owner,{callId:c.id,kind,status:'processing',previous:c.phase});
     c=save({...c,phase:'processing',jobId:j.id});
-    const work=Promise.resolve().then(task).then(result=>{const current=store.get('call',c.id);if(current?.jobId!==j.id)return;store.put('call',{...current,...result,jobId:null});store.put('voice-job',{...j,status:'done'});}).catch(()=>{const current=store.get('call',c.id);if(current?.jobId===j.id)store.put('call',{...current,phase:j.previous,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. אפשר לנסות שוב.'});store.put('voice-job',{...j,status:'failed'});}).finally(()=>jobs.delete(j.id));jobs.set(j.id,work);return c;
+    const work=Promise.resolve().then(task).then(result=>store.atomic(()=>{
+      const current=store.get('call',c.id);if(current?.jobId!==j.id)return;
+      store.put('call',{...current,...result,jobId:null});
+      store.put('voice-job',{...j,status:'done'});
+    })).catch(()=>store.atomic(()=>{
+      const current=store.get('call',c.id);
+      if(current?.jobId===j.id)store.put('call',{...current,phase:j.previous,jobId:null,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. יש לבדוק מצב משלוח לפני ניסיון נוסף.'});
+      store.put('voice-job',{...j,status:'failed'});
+    })).catch(()=>{
+      // Persistence may also fail while recording an error. Never let this
+      // detached task reject and terminate unrelated requests or calls.
+      console.error('Voice job persistence failed; recovery required.');
+    }).finally(()=>jobs.delete(j.id));
+    jobs.set(j.id,work);return c;
   }
   return async function voice(req,res){
     let encoded='';for await(const chunk of req){encoded+=chunk;if(encoded.length>32768){res.writeHead(413);return res.end();}}

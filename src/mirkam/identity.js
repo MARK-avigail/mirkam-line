@@ -14,12 +14,14 @@ export function totp(secret, now=Date.now()) {
 export class Identity {
   constructor(store){this.store=store;}
   register(data,actor) {
+    return this.store.atomic(()=>{
     const identity=clean(data.identity,9);if(!/^\d{9}$/.test(identity))throw Error('מספר זהות צריך להכיל תשע ספרות.');
     if(this.store.list('user').some(u=>u.identity===identity))throw Error('כבר קיים חשבון למספר זהות זה.');
     const users=this.store.list('user');let code;do{code=String(randomInt(1000000)).padStart(6,'0');}while(users.some(u=>u.code===code));
     const pin=String(randomInt(1000000)).padStart(6,'0'),pinSalt=randomBytes(16).toString('hex');
     const user=this.store.create('user','users',{code,name:clean(data.name),identity,prisonerNumber:clean(data.prisonerNumber),prison:clean(data.prison),wing:String(data.wing||'').slice(0,100),verifiedBy:clean(actor),verifiedAt:Date.now(),active:true,pinSalt,pinHash:hashPin(pin,pinSalt),trialUntil:Date.now()+14*86400000,membership:data.freeMembership===true?'free':'trial',renewalConsent:false,priceAgorot:4990});
     this.store.audit(actor,'user.enrolled',user.id);return {user:safeUser(user),pin};
+    });
   }
   user(id){const u=this.store.get('user',id);if(!u||!u.active)throw Error('החשבון אינו זמין.');return u;}
   login(code,pin,source='unknown') {
@@ -39,6 +41,6 @@ export class Identity {
   authenticate(token){if(typeof token!=='string'||!/^[a-f0-9]{64}$/.test(token))throw Error('נדרשת כניסה.');const t=this.store.get('token',digest(token));if(!t||t.expiresAt<Date.now())throw Error('נדרשת כניסה מחדש.');return {user:safeUser(this.user(t.owner)),tokenId:t.id};}
   logout(token){this.store.remove('token',digest(token));}
   revoke(id){for(const t of this.store.list('token',id))this.store.remove('token',t.id);}
-  reset(id,actor){const u=this.store.get('user',id);if(!u)throw Error('החשבון לא נמצא.');let pin;do{pin=String(randomInt(1000000)).padStart(6,'0');}while(hashPin(pin,u.pinSalt)===u.pinHash);const salt=randomBytes(16).toString('hex');this.store.put('user',{...u,pinSalt:salt,pinHash:hashPin(pin,salt)});this.revoke(id);this.store.remove('failure',digest('code:'+u.code));this.store.audit(actor,'user.pin-reset',id);return {pin};}
-  suspend(id,active,actor){const u=this.store.get('user',id);if(!u||typeof active!=='boolean')throw Error('החשבון או המצב לא תקינים.');const r=this.store.put('user',{...u,active});this.revoke(id);this.store.audit(actor,'user.status',id);return safeUser(r);}
+  reset(id,actor){return this.store.atomic(()=>{const u=this.store.get('user',id);if(!u)throw Error('החשבון לא נמצא.');let pin;do{pin=String(randomInt(1000000)).padStart(6,'0');}while(hashPin(pin,u.pinSalt)===u.pinHash);const salt=randomBytes(16).toString('hex');this.store.put('user',{...u,pinSalt:salt,pinHash:hashPin(pin,salt)});this.revoke(id);this.store.remove('failure',digest('code:'+u.code));this.store.audit(actor,'user.pin-reset',id);return {pin};});}
+  suspend(id,active,actor){return this.store.atomic(()=>{const u=this.store.get('user',id);if(!u||typeof active!=='boolean')throw Error('החשבון או המצב לא תקינים.');const r=this.store.put('user',{...u,active});this.revoke(id);this.store.audit(actor,'user.status',id);return safeUser(r);});}
 }
