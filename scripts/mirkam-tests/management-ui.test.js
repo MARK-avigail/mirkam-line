@@ -39,7 +39,6 @@ for(const role of ['support','billing'])for(const id of ['suite-line','suite-cha
  let calls=0;const u=ui(async url=>{if(url==='/api/staff-login')return json({ok:true,token:'session',role});calls++;return json({ok:true,items:[]});});
  await u.submit('staff-login-form');await u.click(id);assert.equal(calls,0);assert.match(u.ids.get('status').textContent,/אין הרשאה/);
 });
-test('dashboard shortcut opens actual petitions list, not member sign-in',async()=>{
- let url;const u=ui(async target=>{if(target==='/api/staff-login')return json({ok:true,token:'session',role:'owner'});url=target;return json({ok:true,items:[]});});
- await u.submit('staff-login-form');const cards=u.ids.get('admin-pane').children.find(n=>n.className==='management-grid');const shortcut=cards.children.find(n=>n.textContent==='עתירות ומסמכים');await shortcut.onclick();assert.equal(url,'/api/admin/drafts');assert.equal(u.ids.get('login').hidden,true);
+test('login offers exactly two workspaces and hides the navigation drawer',async()=>{
+ const u=ui(async()=>json({ok:true,token:'session',role:'owner'}));await u.submit('staff-login-form');const cards=u.ids.get('admin-pane').children.find(n=>n.className==='module-picker');assert.equal(cards.children.length,2);assert.deepEqual(cards.children.map(n=>n.textContent),['מערכת הקו','ניהול המערכת']);assert.equal(u.ids.get('suite-sidebar').hidden,true);
 });

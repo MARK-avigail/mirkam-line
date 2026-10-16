@@ -1,0 +1,12 @@
+{
+  "command": "npm test",
+  "results": {
+    "tests": 1080,
+    "pass": 1080,
+    "fail": 0,
+    "skipped": 0
+  },
+  "ui": "simulated DOM",
+  "browser": "blocked: setsockopt Operation not permitted",
+  "liveTelephonyFax": "not verified"
+}

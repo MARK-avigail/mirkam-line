@@ -37,6 +37,7 @@ test('nonexistent document returns 404 without generating a draft',async t=>{
 async function ownerUI(role='owner'){
  let posts=0;const u=ui(async(url,o)=>{
   if(url==='/api/staff-login')return json({ok:true,token:'session',role});
+  if(url==='/api/admin/users/u'&&o.method==='GET')return json({ok:true,user:{id:'u',name:'בדיקה',prison:'בדיקה'},contacts:[],tickets:[]});
   if(o.method==='POST'){posts++;return json({ok:true,result:{pin:'456789'},user:{code:'123456'},pin:'456789'});}
   return json({ok:true,items:[{id:'u',name:'בדיקה',prison:'בדיקה',active:true}]});
  });await u.submit('staff-login-form');await u.click('admin-users');return {u,posts:()=>posts};
@@ -46,14 +47,14 @@ test('support does not receive oversight or free membership controls',async()=>{
  const {u}=await ownerUI('support');assert.equal(findButton(u,'הענקת פיקוח טלפוני'),undefined);await findButton(u,'משתמש חדש').onclick();assert.ok(!u.text('admin-pane').includes('הטבת מינוי'));assert.match(u.text('admin-pane'),/בדקתי את זהות/);
 });
 test('cancelled PIN reset sends no mutation',async()=>{
- const {u,posts}=await ownerUI();u.window.confirm=()=>false;await findButton(u,'איפוס PIN').onclick();assert.equal(posts(),0);
+ const {u,posts}=await ownerUI();await u.all.find(n=>n.className==='user-row').onclick();u.window.confirm=()=>false;await findButton(u,'איפוס PIN').onclick();assert.equal(posts(),0);
 });
 test('reset credentials are hidden until reveal, never in status, and cleared on navigation',async()=>{
- const {u}=await ownerUI();await findButton(u,'איפוס PIN').onclick();assert.ok(!u.text('admin-pane').includes('456789'));assert.ok(!u.ids.get('status').textContent.includes('456789'));
+ const {u}=await ownerUI();await u.all.find(n=>n.className==='user-row').onclick();await findButton(u,'איפוס PIN').onclick();assert.ok(!u.text('admin-pane').includes('456789'));assert.ok(!u.ids.get('status').textContent.includes('456789'));
  await findButton(u,'הצגת פרטי הכניסה').onclick();assert.match(u.text('admin-pane'),/456789/);await u.click('suite-home');assert.ok(!u.text('admin-pane').includes('456789'));assert.ok(!u.ids.get('status').textContent.includes('456789'));
 });
 test('credentials dismissal clears revealed values',async()=>{
- const {u}=await ownerUI();await findButton(u,'איפוס PIN').onclick();await findButton(u,'הצגת פרטי הכניסה').onclick();await findButton(u,'סגירת פרטי הכניסה').onclick();assert.ok(!u.text('admin-pane').includes('456789'));
+ const {u}=await ownerUI();await u.all.find(n=>n.className==='user-row').onclick();await findButton(u,'איפוס PIN').onclick();await findButton(u,'הצגת פרטי הכניסה').onclick();await findButton(u,'סגירת פרטי הכניסה').onclick();assert.ok(!u.text('admin-pane').includes('456789'));
 });
 test('registration without verification checkbox makes no request',async()=>{
  const {u,posts}=await ownerUI();await findButton(u,'משתמש חדש').onclick();await findButton(u,'שמירה').onclick();assert.equal(posts(),0);assert.match(u.ids.get('status').textContent,/אימות זהות/);

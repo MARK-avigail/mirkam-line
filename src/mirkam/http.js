@@ -42,6 +42,15 @@ export function createMirkamServer(service){
         if(suffix==='owner-profile'&&method==='POST')return send({ok:true,result:service.staff.createOwner(data.username,data.name,actor)});
         if(suffix==='oversight'&&method==='POST')return send({ok:true,result:service.oversight.grant(data.userId,actor)});
         if(suffix==='staff'&&method==='POST')return send({ok:true,result:service.staff.create(data.name,data.role,actor)});
+        const dossier=suffix.match(/^users\/([a-f0-9-]+)(?:\/(contacts))?$/);
+        if(dossier&&method==='GET'&&!dossier[2]){
+          const account=service.store.get('user',dossier[1]);if(!account)throw Object.assign(Error('המשתמש לא נמצא.'),{status:404});
+          const {code,...profile}=safeUser(account);
+          const result={user:profile,contacts:service.store.list('contact',account.id),tickets:service.store.list('ticket',account.id)};
+          if(auth.role==='owner')for(const [key,kind] of [['drafts','draft'],['messages','message'],['conversations','conversation'],['deliveries','delivery']])result[key]=service.store.list(kind,account.id);
+          return send({ok:true,...result});
+        }
+        if(dossier&&dossier[2]==='contacts'&&method==='POST')return send({ok:true,item:service.approveContact(dossier[1],data,actor)});
         if(suffix==='document-template'&&method==='GET')return send({ok:true,previewOnly:true,documents:documentTemplate()});
         const preview=suffix.match(/^drafts\/([a-f0-9-]+)\/(package|pdf|docx)$/);
         if(preview&&method==='GET'){
