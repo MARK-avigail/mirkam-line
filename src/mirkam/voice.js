@@ -42,13 +42,15 @@ export function createVoice(service){
         if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main'});out=redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
         else out=gather('הקישו את הקוד האישי בן שש הספרות.',6);
       }else{
-        const {user}=service.identity.authenticate(c.token),uid=user.id;
+        let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id;
         if(c.phase==='processing'){out=say('הבקשה בעיבוד.')+'<Pause length="2"/>'+redirect();}
         else if(digit==='7'){c=save({...c,phase:'main',draftId:null});out=say('העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
         else if(digit==='*'){out=gather('לשמירה ויציאה הקישו 7. לחזרה לתפריט הראשי 8. לעזרה 9. לדילוג על פרט רשות 0. בזמן הקלטה סולמית מסיימת את ההקלטה.');}
         else if(digit==='8'){c=save({...c,phase:'main'});out=redirect();}
         else if(c.phase==='main'){
+          const completion=c.speech;c={...c,speech:null};
           if(digit==='6'&&user.oversight){c=save({...c,phase:'oversight'});out=redirect();}else {const b=BRANCHES.find(b=>b.digit===digit);if(b){c=save({...c,phase:'branch',branch:b.digit});out=redirect();}else out=gather(BRANCHES.map(b=>`${b.title}, הקישו ${b.digit}`).join('. ')+(user.oversight?'. לפיקוח הקישו 6.':''));}
+          if(completion)out=say(completion)+out;
         }else if(c.phase==='oversight'){
           service.oversight.require(uid);
           if(digit==='1'){const s=service.oversight.summary(uid);out=say(`חשבונות: ${s.accounts}. פעילים: ${s.active}. פניות: ${s.tickets}. בקשות בינה מלאכותית: ${s.aiRequests}. תשלומים מאומתים: ${s.paymentsAgorot/100} שקלים. עלות ספקי השירות בפועל עדיין אינה מסונכרנת. הגדרות בינה מלאכותית: ${s.aiConfigured?'קיימות':'חסרות'}. הגדרות מייל: ${s.emailConfigured?'קיימות':'חסרות'}.`)+gather('לחזרה לתפריט הראשי 8.');}
@@ -100,7 +102,7 @@ export function createVoice(service){
           else if(d.stage==='dialogue'){
             if(digit==='0'){service.skip(d.id,uid,d.revision);out=redirect();}
             else if(digit==='9'){c=job(c,'coach',async()=>{const result=await service.coach(d.id,uid);return {phase:'draft',speech:result.helper};});out=redirect();}
-            else if(data.RecordingUrl){const recordingId=data.RecordingSid||data.RecordingUrl;if(c.lastRecording===recordingId)out=redirect();else{c=save({...c,lastRecording:recordingId});c=job(c,'transcribe',async()=>{service.reserveAI(uid);const text=await transcribeTwilio(data.RecordingUrl);const latest=service.draft(d.id,uid);await service.answerWithCoach(d.id,uid,text,latest.revision);service.recordAudio(uid,{providerId:recordingId});return {phase:'draft'};});out=redirect();}}
+            else if(data.RecordingUrl){const recordingId=data.RecordingSid||data.RecordingUrl;if(c.lastRecording===recordingId)out=redirect();else{c=save({...c,lastRecording:recordingId});c=job(c,'transcribe',async()=>{service.reserveAI(uid);const text=await transcribeTwilio(data.RecordingUrl);service.identity.authenticate(c.token);await service.answerWithCoach(d.id,uid,text,d.revision);service.recordAudio(uid,{providerId:recordingId});return {phase:'draft'};});out=redirect();}}
             else {c={...c,inputNonce:randomUUID(),recordNonce:randomUUID()};out=`<Gather numDigits="1" action="/voice/step?input=${c.inputNonce}" timeout="4">${say((c.speech||'')+d.question+' לעזרה 9, לדילוג על שדה רשות 0, לשמירה ויציאה 7. להקלטה המתינו לצליל. סולמית מסיימת.')}</Gather><Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="180" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;}
           }else if(d.stage==='answer-review'){
             if(['1','2'].includes(digit)){service.confirmAnswer(d.id,uid,digit==='1',d.revision);out=redirect();}
@@ -133,7 +135,8 @@ export function createVoice(service){
           else out=record(c.speech|| (c.phase==='chat'?'אני כאן. מה תרצו לשאול?':c.phase==='ticket'?'ספרו מה תרצו להעביר למשרד.':'אמרו את ההודעה למשפחה.'));
         }else if(c.phase==='family-review'){
           const m=store.owned('message',c.messageId,uid),contact=store.owned('contact',m.contactId,uid);
-          if(digit==='1'&&c.messagePresented===m.id){const approved=service.approveMessage(m.id,uid,true,m.revision);c=job(c,'family-mail',async()=>{await service.sendMessage(approved.id,uid,approved.revision);return {phase:'main',speech:'שרת המייל קיבל את ההודעה. זו אינה הוכחת קריאה.'};});out=redirect();}
+          if(!['review','approved'].includes(m.status)){out=say(m.status==='accepted_by_mail_server'?'שרת המייל כבר קיבל את ההודעה.':'מצב המשלוח אינו ודאי. יש לבדוק עם המשרד לפני ניסיון נוסף.')+gather('לחזרה לתפריט הראשי הקישו 8.');}
+          else if(digit==='1'&&c.messagePresented===m.id){const approved=m.status==='approved'?m:service.approveMessage(m.id,uid,true,m.revision);c=job(c,'family-mail',async()=>{await service.sendMessage(approved.id,uid,approved.revision);return {phase:'main',speech:'שרת המייל קיבל את ההודעה. זו אינה הוכחת קריאה.'};});out=redirect();}
           else if(digit==='2'){c=save({...c,phase:'family-compose'});out=redirect();}
           else{c=save({...c,messagePresented:m.id});out=gather(`ההודעה אל ${contact.name}: ${m.text}. לאישור ושליחה 1. להקלטה מחדש 2.`);}
         }else{c=save({...c,phase:'main'});out=redirect();}

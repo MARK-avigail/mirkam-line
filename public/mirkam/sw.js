@@ -1,6 +1,6 @@
 'use strict';
 // Only the public application shell is cached. Never API responses or personal records.
-const SHELL_CACHE='mirkam-shell-v3';
+const SHELL_CACHE='mirkam-shell-v4';
 const SHELL_FILES=['/','/app.js','/style.css','/install.js','/manifest.webmanifest','/icon-192.png','/icon-512.png','/brand-logo.png'];
 const expectedType=path=>path==='/'?'text/html':path.endsWith('.js')?'javascript':path.endsWith('.css')?'text/css':path.endsWith('.png')?'image/png':'manifest+json';
 async function valid(response,path){
@@ -33,10 +33,9 @@ self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET'||url.origin!==self.location.origin||!SHELL_FILES.includes(url.pathname))return;
   event.respondWith((async()=>{
     const cache=await caches.open(SHELL_CACHE),saved=await cache.match(url.pathname);
-    if(event.request.mode!=='navigate'&&saved)return saved;
     try{
       const r=await fetch(event.request,{signal:AbortSignal.timeout(4000)});
-      if(await valid(r,url.pathname))return r;
+      if(await valid(r,url.pathname)){await cache.put(url.pathname,r.clone());return r;}
       if(saved)return saved;
       return r;
     }catch{

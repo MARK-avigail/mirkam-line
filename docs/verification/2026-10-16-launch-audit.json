@@ -1,0 +1,28 @@
+{
+  "primary": {
+    "tests": 1102,
+    "pass": 1102,
+    "fail": 0,
+    "skipped": 0
+  },
+  "legacyOffline": {
+    "tests": 43,
+    "pass": 43,
+    "fail": 0,
+    "skipped": 0
+  },
+  "newRegressionCases": 8,
+  "reproducedFailingBeforeFix": 7,
+  "verify": {
+    "syntaxFiles": 78,
+    "result": "failed: six Node dependencies absent in local environment",
+    "pdfRuntime": "check passed"
+  },
+  "liveChecks": {
+    "smtpAndInbox": "confirmed by user screenshot",
+    "managementMail": "pending",
+    "telephone": "pending",
+    "fax": "pending",
+    "browserVisual": "not run: environment restriction previously observed"
+  }
+}
