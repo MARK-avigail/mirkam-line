@@ -141,6 +141,22 @@ function openContactForm(id){
  adminForm('אישור איש קשר למשתמש שנבחר',[['name','שם איש קשר'],['email','כתובת מייל','email']],async data=>{await api('admin/users/'+id+'/contacts','POST',data,true);await openUser(id,'contacts');});
  button('ביטול וחזרה לתיק המשתמש',()=>openUser(id,'contacts'),$('admin-pane'));
 }
+function mailStatus(value){return ({review:'ממתינה לאישור תוכן ונמען',approved:'מאושרת לשליחה',sending:'בתהליך שליחה',accepted_by_mail_server:'התקבלה אצל שרת המייל — הגעה לתיבה טרם אומתה',delivery_unknown:'מצב השליחה אינו ודאי — יש לבדוק לפני ניסיון נוסף',received:'הודעה שהתקבלה'})[value]||value;}
+function composeAdminMail(userId,contacts){
+ const p=$('admin-pane');clearCredentials();p.replaceChildren(node('h2','כתיבת הודעה מתוך תיק המשתמש'));
+ const available=contacts.filter(c=>c.active&&c.approved);
+ if(!available.length){p.append(node('p','יש להוסיף איש קשר מאושר בתיק המשתמש לפני כתיבת הודעה.'));button('חזרה לאנשי קשר',()=>openUser(userId,'contacts'),p);return;}
+ const label=node('label','איש קשר מאושר'),select=node('select');for(const c of available){const option=node('option',c.name+' — '+c.email);option.value=c.id;select.append(option);}label.append(select);p.append(label);
+ const text=input('תוכן ההודעה','textarea',p);
+ button('בדיקה לפני שליחה',async()=>{const c=available.find(c=>c.id===select.value);if(!c)throw Error('יש לבחור איש קשר.');const r=await api('admin/users/'+userId+'/messages','POST',{contactId:c.id,text:text.value},true);reviewAdminMail(userId,r.item,c);},p);
+ button('חזרה לתיק המשתמש',()=>openUser(userId,'messages'),p);
+}
+function reviewAdminMail(userId,item,contact){
+ const p=$('admin-pane');p.replaceChildren(node('h2','אישור הודעה לפני שליחה'),node('p','נמען: '+contact.name));const address=node('p',contact.email);address.dir='ltr';p.append(address,node('pre',item.text),node('p',mailStatus(item.status)));
+ if(item.status==='review')button('אישור התוכן והנמען',async()=>{const r=await api('admin/users/'+userId+'/messages/'+item.id+'/approve','POST',{accept:true,revision:item.revision},true);reviewAdminMail(userId,r.item,contact);},p);
+ if(item.status==='approved')button('שליחת המייל',async()=>{const r=await api('admin/users/'+userId+'/messages/'+item.id+'/send','POST',{revision:item.revision},true);reviewAdminMail(userId,r.item,contact);},p);
+ button('חזרה להודעות המשתמש',()=>openUser(userId,'messages'),p);
+}
 async function openUser(id,tab='profile'){
  const r=await api('admin/users/'+id,'GET',undefined,true);selectedUserId=id;enterArea('management');const p=$('admin-pane');p.replaceChildren();backToUsers(p);
  p.append(node('h1',r.user.name),node('p',r.user.prison+' · '+(r.user.active===false?'מושעה':'פעיל')));
@@ -155,7 +171,8 @@ async function openUser(id,tab='profile'){
    return;
   }
   const items=r[key]||[];if(!items.length)content.append(node('p','אין פריטים בתיק זה.'));
-  for(const item of items){const card=node('section');card.className='profile-record';card.append(node('h3',item.name||item.answers?.subject||item.status||'פריט'));if(key==='drafts')button('פתיחת העתירה',()=>showAdminDocuments(item.id,id),card);else if(key==='contacts'){const address=node('p',item.email);address.dir='ltr';card.append(address,node('p',item.approved&&item.active?'מאושר ופעיל':'לא פעיל'));}else card.append(node('pre',key==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):item.text||''));content.append(card);}
+  for(const item of items){const card=node('section');card.className='profile-record';card.append(node('h3',item.name||item.answers?.subject||item.status||'פריט'));if(key==='drafts')button('פתיחת העתירה',()=>showAdminDocuments(item.id,id),card);else if(key==='contacts'){const address=node('p',item.email);address.dir='ltr';card.append(address,node('p',item.approved&&item.active?'מאושר ופעיל':'לא פעיל'));}else card.append(node('pre',key==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):item.text||''));if(key==='messages'){card.append(node('p',mailStatus(item.status)));const c=(r.contacts||[]).find(c=>c.id===item.contactId);if(c&&item.direction==='outgoing'&&['review','approved'].includes(item.status))button('פתיחת הודעה לבדיקה',()=>reviewAdminMail(id,item,c),card);}content.append(card);}
+  if(key==='messages'&&adminRole==='owner')button('כתיבת הודעה',()=>composeAdminMail(id,r.contacts||[]),content);
   if(key==='contacts')button('הוספת איש קשר ואישורו',()=>openContactForm(id),content);
  };
  for(const [key,label] of labels){if(key!=='profile'&&!Object.hasOwn(r,key))continue;const b=node('button',label);b.type='button';b.datasetTab=key;b.onclick=()=>render(key);tabs.append(b);}

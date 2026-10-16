@@ -42,6 +42,18 @@ export function createMirkamServer(service){
         if(suffix==='owner-profile'&&method==='POST')return send({ok:true,result:service.staff.createOwner(data.username,data.name,actor)});
         if(suffix==='oversight'&&method==='POST')return send({ok:true,result:service.oversight.grant(data.userId,actor)});
         if(suffix==='staff'&&method==='POST')return send({ok:true,result:service.staff.create(data.name,data.role,actor)});
+        const accountMail=suffix.match(/^users\/([a-f0-9-]+)\/messages(?:\/([a-f0-9-]+)\/(approve|send))?$/);
+        if(accountMail&&method==='POST'){
+          if(auth.role!=='owner')return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
+          const [,userId,messageId,action]=accountMail;
+          service.requireService(userId);
+          let item;
+          if(!action)item=service.compose(userId,data.contactId,data.text);
+          else if(action==='approve')item=service.approveMessage(messageId,userId,data.accept,data.revision);
+          else {service.store.audit(actor,'admin.message.send_requested',messageId);item=await service.sendMessage(messageId,userId,data.revision);}
+          service.store.audit(actor,'admin.message.'+(action||'compose'),item.id);
+          return send({ok:true,item});
+        }
         const dossier=suffix.match(/^users\/([a-f0-9-]+)(?:\/(contacts))?$/);
         if(dossier&&method==='GET'&&!dossier[2]){
           const account=service.store.get('user',dossier[1]);if(!account)throw Object.assign(Error('המשתמש לא נמצא.'),{status:404});
