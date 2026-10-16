@@ -42,6 +42,12 @@ export function createMirkamServer(service){
         if(suffix==='owner-profile'&&method==='POST')return send({ok:true,result:service.staff.createOwner(data.username,data.name,actor)});
         if(suffix==='oversight'&&method==='POST')return send({ok:true,result:service.oversight.grant(data.userId,actor)});
         if(suffix==='staff'&&method==='POST')return send({ok:true,result:service.staff.create(data.name,data.role,actor)});
+        const accountCode=suffix.match(/^users\/([a-f0-9-]+)\/code$/);
+        if(accountCode&&method==='GET'){
+          const user=service.store.get('user',accountCode[1]);if(!user)return send({ok:false,error:'המשתמש לא נמצא.'},404);
+          service.store.audit(actor,'user.code-viewed',user.id);
+          return send({ok:true,code:user.code});
+        }
         const accountMail=suffix.match(/^users\/([a-f0-9-]+)\/messages(?:\/([a-f0-9-]+)\/(approve|send))?$/);
         if(accountMail&&method==='POST'){
           if(auth.role!=='owner')return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);

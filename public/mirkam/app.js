@@ -113,7 +113,7 @@ function showCredentials(name,credentials){
  const panel=node('section');credentialPanel=panel;panel.className='credential-card';
  panel.append(node('p','הפרטים נועדו למסירה פרטית למשתמש הקו. ההצגה תיסגר במעבר מסך או לאחר דקה.'));
  const display=node('div');
- button('הצגת פרטי הכניסה',async()=>{display.replaceChildren();if(credentials.code)display.append(node('p','קוד משתמש: '+credentials.code));display.append(node('p','PIN: '+credentials.pin));},panel);
+ button('הצגת פרטי הכניסה',async()=>{display.replaceChildren();if(credentials.code)display.append(node('p','קוד משתמש: '+credentials.code));if(credentials.pin)display.append(node('p','PIN: '+credentials.pin));else display.append(node('p','ה-PIN הקיים אינו ניתן להצגה. אם נשכח, יש לאפס אותו.'));},panel);
  panel.append(display);button('סגירת פרטי הכניסה',async()=>clearCredentials(),panel);p.append(panel);
  credentialTimer=setTimeout(()=>{clearCredentials();},60000);
  $('status').textContent='הפעולה הושלמה. פרטי הכניסה זמינים באזור הפרטי למטה.';reveal(p);
@@ -166,6 +166,8 @@ async function openUser(id,tab='profile'){
   clearCredentials();content.replaceChildren();for(const b of tabs.children)b.setAttribute('aria-current',b.datasetTab===key?'page':'false');
   if(key==='profile'){
    for(const [label,value] of [['שם',r.user.name],['מספר זהות',r.user.identity],['מספר אסיר',r.user.prisonerNumber],['בית סוהר',r.user.prison],['אגף',r.user.wing]]){const row=node('p');row.append(node('strong',label+': '),node('span',value||'לא צוין'));content.append(row);}
+   button(r.user.active===false?'ביטול חסימת משתמש':'חסימת משתמש',async()=>{const active=r.user.active===false;if(!window.confirm((active?'לבטל את החסימה של ':'לחסום את ')+r.user.name+'? '+(active?'תתאפשר כניסה מחדש.':'החיבורים הקיימים יבוטלו. הנתונים יישמרו.')))return;await api('admin/users/'+id+'/status','POST',{active},true);await openUser(id);},content);
+   button('קוד משתמש למסירה',async()=>{const result=await api('admin/users/'+id+'/code','GET',undefined,true);showCredentials(r.user.name,{code:result.code});button('חזרה לתיק המשתמש',()=>openUser(id),$('admin-pane'));},content);
    button('איפוס PIN',async()=>{if(!window.confirm('לאפס את ה-PIN של '+r.user.name+'? הקוד הקודם לא יעבוד והחיבורים הקיימים יבוטלו.'))return;const result=await api('admin/users/'+id+'/reset','POST',{},true);showCredentials(r.user.name,result.result);button('חזרה לתיק המשתמש',()=>openUser(id),$('admin-pane'));},content);
    if(adminRole==='owner'){const extra=node('details');extra.className='advanced-permissions';extra.append(node('summary','הרשאות פיקוח מיוחדות'),node('p','פיקוח מאפשר גישה למידע של משתמשים אחרים וכולל מינוי ללא חיוב. אינו הרשאת ניהול באפליקציה.'));if(r.user.oversight)extra.append(node('p','פיקוח טלפוני כבר מופעל.'));else button('הענקת פיקוח טלפוני',async()=>{if(!window.confirm('להעניק ל-'+r.user.name+' גישה לשיחות, מסמכים וחשבונות של אחרים?'))return;await api('admin/oversight','POST',{userId:id},true);await openUser(id);},extra);content.append(extra);}
    return;
