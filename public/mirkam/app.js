@@ -32,6 +32,16 @@ function managementHome(){
  const management=node('button','ניהול המערכת');management.type='button';management.onclick=()=>(canManage('admin-users')?$('admin-users'):$('admin-status')).onclick();
  cards.append(line,management);p.append(cards);reveal(p);
 }
+$('software-updates').onclick=()=>run(async()=>{
+ requireManagement();clearCredentials();closeDrawer();const p=$('admin-pane');p.replaceChildren(node('h2','עדכוני התוכנה'),node('p','גרסת ממשק: חיפוש ותיק משתמש — 16.10.2026.'));
+ if(window.mirkamNative?.updateCheck){
+  p.append(node('p','עדכוני ממשק נבדקים מתוך התוכנה. עדכון מוכן יופעל בסגירה מלאה ובפתיחה מחדש.'));
+  button('בדיקת עדכונים',async()=>{const r=await window.mirkamNative.updateCheck();p.append(node('p',r.available?'עדכון מוכן לפתיחה הבאה.':r.busy?'בדיקת עדכונים כבר פועלת.':'לא נמצא עדכון חדש.'));},p);
+ }else{
+  p.append(node('p','אין צורך להתקין מחדש את האפליקציה לאחר שינוי באתר. לאחר התקנת העדכון בשרת, רענון טוען את הממשק המעודכן.'));
+  button('רענון לגרסה שבשרת',async()=>{if(!navigator.onLine)throw Error('נדרש חיבור לאינטרנט כדי לטעון עדכון.');if(window.confirm('לרענן את התוכנה? יהיה צורך להיכנס מחדש.'))window.location.reload();},p);
+ }
+});
 $('suite-home').onclick=()=>run(async()=>{requireManagement();managementHome();});
 $('suite-line').onclick=()=>run(async()=>{
  requireManagement();const r=await api('admin/line','GET',undefined,true);suiteActive('suite-line');
@@ -112,9 +122,9 @@ $('admin-users').onclick=()=>run(async()=>{
  const r=await api('admin/users','GET',undefined,true),p=$('admin-pane');p.replaceChildren(node('h3','משתמשי הקו'));reveal(p);
  if(!r.items.length)p.append(node('p','עדיין אין משתמשים. לחצו על משתמש חדש.'));
  selectedUserId=null;
- const search=input('חיפוש לפי שם, מספר אסיר או מספר זהות','search',p);search.autocomplete='off';const results=node('div');results.className='user-results';p.append(results);
- const render=()=>{const query=search.value.trim().toLocaleLowerCase('he');const items=r.items.filter(u=>[u.name,u.prisonerNumber,u.identity,u.prison].some(v=>String(v||'').toLocaleLowerCase('he').includes(query)));results.replaceChildren();if(!items.length)results.append(node('p','לא נמצאו משתמשים.'));for(const u of items){const row=node('button');row.type='button';row.className='user-row';row.append(node('strong',u.name),node('span',u.prison+' · '+(u.active===false?'מושעה':'פעיל')));row.onclick=()=>run(()=>openUser(u.id));results.append(row);}};
- search.oninput=render;render();
+ const searchForm=node('form');searchForm.className='user-search';p.append(searchForm);const search=input('חיפוש משתמשים לפי שם, מספר אסיר, זהות או בית סוהר','search',searchForm);search.autocomplete='off';search.placeholder='הקלידי שם או מספר לחיפוש';const submit=node('button','חיפוש');submit.type='submit';submit.className='search-submit';searchForm.append(submit);const summary=node('p');summary.className='search-summary';summary.setAttribute('role','status');summary.setAttribute('aria-live','polite');p.append(summary);const results=node('div');results.className='user-results';p.append(results);
+ const render=()=>{const query=search.value.trim().toLocaleLowerCase('he');const items=r.items.filter(u=>[u.name,u.prisonerNumber,u.identity,u.prison].some(v=>String(v||'').toLocaleLowerCase('he').includes(query)));summary.textContent=query?(items.length?'נמצאו '+items.length+' תוצאות עבור ״'+search.value.trim()+'״':'לא נמצאו משתמשים עבור ״'+search.value.trim()+'״'):'מוצגים '+items.length+' משתמשים';results.replaceChildren();if(!items.length)results.append(node('p','לא נמצאו משתמשים.'));for(const u of items){const row=node('button');row.type='button';row.className='user-row';row.append(node('strong',u.name),node('span',u.prison+' · '+(u.active===false?'מושעה':'פעיל')));row.onclick=()=>run(()=>openUser(u.id));results.append(row);}};
+ search.oninput=render;search.onchange=render;search.onsearch=render;searchForm.onsubmit=event=>{event.preventDefault();render();};render();
  button('משתמש חדש',async()=>{
   const fields=[['name','שם'],['identity','מספר זהות — תשע ספרות'],['prisonerNumber','מספר אסיר'],['prison','בית סוהר'],['wing','אגף']];
   if(adminRole==='owner')fields.push(['freeMembership','הטבת מינוי ללא חיוב','checkbox']);
