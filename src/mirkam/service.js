@@ -77,11 +77,13 @@ export class Mirkam {
     if(a.fingerprint!==reviewFingerprint(d,this.profile(user),target,a.channel)||target.revision!==a.targetRevision)throw Error('המסמך או היעד השתנו.');
     if(!this.providers.deliver||!this.providers.supports?.(a.channel))throw Error('ספק השליחה לערוץ זה לא הוגדר. המסמך נשמר.');
     const delivery=this.store.atomic(()=>{d=this.store.put('draft',{...d,stage:'sending'},revision);return this.store.create('delivery',user,{draftId:id,targetId:target.id,channel:a.channel,status:'sending',idempotencyKey:a.nonce,approvedAt:a.confirmedAt});});
+    let acceptedReceipt;
     try{
       const receipt=await this.providers.deliver({idempotencyKey:delivery.idempotencyKey,channel:a.channel,target,documents:this.package(id,user),attachments:d.attachments.map(f=>this.store.owned('attachment',f.id,user))});
       if(!receipt||!['accepted_by_mail_server','accepted_by_fax_provider'].includes(receipt.status))throw Error('Unknown delivery result');
-      this.store.put('delivery',{...delivery,status:receipt.status,receipt});this.store.put('draft',{...d,stage:'archived'});return this.store.get('delivery',delivery.id);
-    }catch{this.store.put('delivery',{...delivery,status:'delivery_unknown'});this.store.put('draft',{...d,stage:'delivery-unknown'});throw Error('מצב המשלוח אינו ודאי. לא נשלח שוב אוטומטית; יש לבדוק עם המשרד.');}
+      acceptedReceipt=receipt;
+      return this.store.atomic(()=>{const saved=this.store.put('delivery',{...delivery,status:receipt.status,receipt});this.store.put('draft',{...d,stage:'archived'});return saved;});
+    }catch{this.store.atomic(()=>{this.store.put('delivery',{...delivery,status:'delivery_unknown',...(acceptedReceipt?{receipt:acceptedReceipt}:{})});this.store.put('draft',{...d,stage:'delivery-unknown'});});throw Error('מצב המשלוח אינו ודאי. לא נשלח שוב אוטומטית; יש לבדוק עם המשרד.');}
   }
   contacts(user){return this.store.list('contact',user).filter(c=>c.approved&&c.active);}
   approveContact(user,data,actor){this.identity.user(user);const email=validText(data.email,254).toLowerCase();if(!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email))throw Error('כתובת איש קשר אינה תקינה.');const limit=Number(process.env.MIRKAM_CONTACT_LIMIT)||5;if(this.contacts(user).length>=limit)throw Error('מגבלת אנשי הקשר הוגדרה במשרד.');if(this.contacts(user).some(c=>c.email===email))throw Error('איש הקשר כבר מאושר.');const r=this.store.create('contact',user,{name:validText(data.name,150),email,approved:true,active:true,approvedBy:actor,approvedAt:Date.now()});this.store.audit(actor,'contact.approved',r.id);return r;}

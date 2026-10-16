@@ -1,0 +1,19 @@
+{
+  "command": "npm test",
+  "results": {
+    "tests": 1118,
+    "pass": 1118,
+    "fail": 0,
+    "skipped": 0
+  },
+  "newTests": 10,
+  "failureCategories": 4,
+  "failedTestsBeforeFix": 5,
+  "productionFaultInjection": false,
+  "productionLoadTest": false,
+  "pdfSmoke": {
+    "passed": true,
+    "bytes": 46344,
+    "visualInspection": false
+  }
+}

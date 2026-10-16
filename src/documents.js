@@ -3,15 +3,24 @@ import { fileURLToPath } from 'node:url';
 import { buildDocument } from './state-machine.js';
 
 const renderer = fileURLToPath(new URL('../scripts/render_document.py', import.meta.url));
+const MAX_PDF_RENDERERS = 2;
+let activePdfRenderers = 0;
 export function renderPdf(document, { test = true } = {}) {
   if (typeof document !== 'string' || document.length > 30000) throw new Error('Invalid document size');
+  if (activePdfRenderers >= MAX_PDF_RENDERERS) return Promise.reject(Object.assign(new Error('יצירת מסמכים עמוסה כרגע. נסו שוב בעוד רגע.'), { status: 503 }));
+  activePdfRenderers++;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.env.PYTHON_BIN || 'python3', [renderer], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let released = false;
+    const release = () => { if (!released) { released = true; activePdfRenderers--; } };
+    let child;
+    try { child = spawn(process.env.PYTHON_BIN || 'python3', [renderer], { stdio: ['pipe', 'pipe', 'pipe'] }); }
+    catch (error) { release(); reject(error); return; }
+    child.once('close', release);
     const chunks = []; let length = 0; let settled = false;
-    const timer = setTimeout(() => { child.kill(); finish(new Error('PDF rendering timed out')); }, 20000);
+    const timer = setTimeout(() => { child.kill('SIGKILL'); finish(new Error('PDF rendering timed out')); }, 20000);
     function finish(error, result) { if (settled) return; settled = true; clearTimeout(timer); error ? reject(error) : resolve(result); }
-    child.on('error', () => finish(new Error('PDF renderer unavailable; check Python setup')));
-    child.stdout.on('data', chunk => { length += chunk.length; if (length > 5 * 1024 * 1024) { child.kill(); finish(new Error('PDF too large')); } else chunks.push(chunk); });
+    child.on('error', () => { release(); finish(new Error('PDF renderer unavailable; check Python setup')); });
+    child.stdout.on('data', chunk => { length += chunk.length; if (length > 5 * 1024 * 1024) { child.kill('SIGKILL'); finish(new Error('PDF too large')); } else chunks.push(chunk); });
     child.stderr.resume();
     child.stdin.on('error', () => {});
     child.on('close', code => { const result = Buffer.concat(chunks); if (code !== 0 || !result.subarray(0, 5).equals(Buffer.from('%PDF-'))) finish(new Error('PDF rendering failed; check dependencies and Hebrew font')); else finish(null, result); });
