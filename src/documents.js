@@ -6,7 +6,7 @@ const renderer = fileURLToPath(new URL('../scripts/render_document.py', import.m
 const MAX_PDF_RENDERERS = 2;
 let activePdfRenderers = 0;
 export function renderPdf(document, { test = true } = {}) {
-  if (typeof document !== 'string' || document.length > 30000) throw new Error('Invalid document size');
+  if (typeof document !== 'string' || document.length > 100000) throw new Error('Invalid document size');
   if (activePdfRenderers >= MAX_PDF_RENDERERS) return Promise.reject(Object.assign(new Error('יצירת מסמכים עמוסה כרגע. נסו שוב בעוד רגע.'), { status: 503 }));
   activePdfRenderers++;
   return new Promise((resolve, reject) => {
@@ -41,7 +41,7 @@ function zip(files) {
   const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10); end.writeUInt32LE(offset - start, 12); end.writeUInt32LE(start, 16); parts.push(end); return Buffer.concat(parts);
 }
 export function renderDocx(document, { test = true } = {}) {
-  if (typeof document !== 'string' || document.length > 30000) throw new Error('Invalid document size');
+  if (typeof document !== 'string' || document.length > 100000) throw new Error('Invalid document size');
   const lines = test ? ['בדיקת מערכת — לא להגשה', '', ...document.split('\n')] : document.split('\n');
   const paragraphs = lines.map(line => {
     const heading = line === 'עתירה' || /^\d+\. /.test(line) || /^(ב?בית המשפט|בית משפט|נושא:)/.test(line);

@@ -12,7 +12,7 @@ import { permitted } from './staff.js';
 
 const publicDir=fileURLToPath(new URL('../../public/mirkam/',import.meta.url));
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);};
-async function body(req){let b='';for await(const chunk of req){b+=chunk.toString();if(Buffer.byteLength(b)>8*1024*1024)throw Error('הבקשה גדולה מדי.');}try{return b?JSON.parse(b):{};}catch{throw Error('הבקשה אינה תקינה.');}}
+async function body(req){const chunks=[];let size=0;for await(const chunk of req){const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);size+=bytes.length;if(size>8*1024*1024)throw Error('הבקשה גדולה מדי.');chunks.push(bytes);}const b=Buffer.concat(chunks,size).toString('utf8');try{return b?JSON.parse(b):{};}catch{throw Error('הבקשה אינה תקינה.');}}
 function staff(req,service){
   const master=process.env.MIRKAM_ADMIN_TOKEN;
   if(!master||master.length<32||!equal(req.headers.authorization,'Bearer '+master))return service.staff.authenticate((req.headers.authorization||'').replace(/^Bearer /,''));
@@ -74,13 +74,13 @@ export function createMirkamServer(service){
         if(preview&&method==='GET'){
           const d=service.store.get('draft',preview[1]);if(!d)throw Object.assign(Error('העתירה לא נמצאה.'),{status:404});
           const profile=service.store.get('user',d.owner);if(!profile)throw Object.assign(Error('חשבון העותר לא נמצא.'),{status:404});
-          const documents=documentPackage(d,profile);
+          const documents=d.sentDocuments||documentPackage(d,profile);
           if(preview[2]==='package')return send({ok:true,previewOnly:true,stage:d.stage,missing:missing(d),documents});
           const doc=documents.find(item=>item.kind===u.searchParams.get('kind'));if(!doc)throw Object.assign(Error('מסמך לא נמצא.'),{status:404});
           const pdf=preview[2]==='pdf',bytes=pdf?await renderPdf(doc.text,{test:true}):renderDocx(doc.text,{test:true});
           res.writeHead(200,{'Content-Type':pdf?'application/pdf':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','Content-Disposition':`attachment; filename="preview-${doc.kind}.${preview[2]}"`});return res.end(bytes);
         }
-        if(suffix==='membership'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>({id:u.id,name:u.name,...service.membership(u.id)}))});
+        if(suffix==='membership'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>({id:u.id,name:u.name,...service.membership(u.id,{includeInactive:true})}))});
         if(suffix==='payments'&&method==='GET')return send({ok:true,items:service.store.list('payment')});
         if(['conversations','drafts','messages'].includes(suffix)&&method==='GET'){const kind={conversations:'conversation',drafts:'draft',messages:'message'}[suffix];return send({ok:true,items:service.store.list(kind)});}
         if(suffix==='users'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>{const {code,...profile}=safeUser(u);return profile;})});
@@ -114,7 +114,7 @@ export function createMirkamServer(service){
         if(action==='package'&&method==='GET')return send({ok:true,documents:service.package(draftId,id)});
         if(['pdf','docx'].includes(action)&&method==='GET'){const doc=service.package(draftId,id).find(d=>d.kind===u.searchParams.get('kind'));if(!doc)throw Error('מסמך לא נמצא.');const bytes=action==='pdf'?await renderPdf(doc.text,{test:true}):renderDocx(doc.text,{test:true});res.writeHead(200,{'Content-Type':action==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','Content-Disposition':`attachment; filename="${doc.kind}.${action}"`});return res.end(bytes);}
         if(method!=='POST')throw Error('פעולה לא מוכרת.');let result;
-        switch(action){case 'profile':result=service.confirmProfile(draftId,id,data.revision);break;case 'court':result=service.chooseCourt(draftId,id,data.targetId,data.revision);break;case 'answer':result=await service.answerWithCoach(draftId,id,data.text,data.revision);break;case 'clarify':result=await service.clarify(draftId,id,data.text,data.revision);break;case 'confirm':result=service.confirmAnswer(draftId,id,data.accept,data.revision);break;case 'skip':result=service.skip(draftId,id,data.revision);break;case 'edit':result=service.edit(draftId,id,data.key,data.revision);break;case 'restore':result=service.restore(draftId,id,data.revision);break;case 'coach':result=await service.coach(draftId,id,data.text);break;case 'attach':result=service.attach(draftId,id,data,data.revision);break;case 'offer':result=service.offer(draftId,id,data.targetId,data.channel,data.revision);break;case 'approve':result=service.approve(draftId,id,data.nonce,data.accept,data.revision);break;case 'send':return send({ok:true,delivery:await service.send(draftId,id,data.revision)});default:throw Error('פעולה לא מוכרת.');}
+        switch(action){case 'profile':result=service.confirmProfile(draftId,id,data.revision);break;case 'court':result=service.chooseCourt(draftId,id,data.targetId,data.revision);break;case 'answer':result=await service.answerWithCoach(draftId,id,data.text,data.revision,()=>service.identity.authenticate(token));break;case 'clarify':result=await service.clarify(draftId,id,data.text,data.revision,()=>service.identity.authenticate(token));break;case 'confirm':result=service.confirmAnswer(draftId,id,data.accept,data.revision);break;case 'skip':result=service.skip(draftId,id,data.revision);break;case 'edit':result=service.edit(draftId,id,data.key,data.revision);break;case 'restore':result=service.restore(draftId,id,data.revision);break;case 'coach':result=await service.coach(draftId,id,data.text,()=>service.identity.authenticate(token));break;case 'attach':result=service.attach(draftId,id,data,data.revision);break;case 'offer':result=service.offer(draftId,id,data.targetId,data.channel,data.revision);break;case 'approve':result=service.approve(draftId,id,data.nonce,data.accept,data.revision);break;case 'send':return send({ok:true,delivery:await service.send(draftId,id,data.revision)});default:throw Error('פעולה לא מוכרת.');}
         return send({ok:true,draft:service.viewDraft(result.id,id)});
       }
       const resources={conversations:'conversation',contacts:'contact',messages:'message',deliveries:'delivery',versions:'version',tickets:'ticket'};
@@ -122,7 +122,7 @@ export function createMirkamServer(service){
       if(resource){const [,name,rid,action]=resource,kind=resources[name];
         if(method==='GET')return send({ok:true,...(rid?{item:service.store.owned(kind,rid,id)}:{items:service.store.list(kind,id)})});
         if(name==='conversations'&&!rid&&method==='POST')return send({ok:true,item:service.newConversation(id,data.name)});
-        if(name==='conversations'&&rid&&action==='chat'&&method==='POST')return send({ok:true,item:await service.chat(rid,id,data.text,data.revision)});
+        if(name==='conversations'&&rid&&action==='chat'&&method==='POST')return send({ok:true,item:await service.chat(rid,id,data.text,data.revision,()=>service.identity.authenticate(token))});
         if(name==='messages'&&!rid&&method==='POST')return send({ok:true,item:service.compose(id,data.contactId,data.text)});
         if(name==='messages'&&action==='approve'&&method==='POST')return send({ok:true,item:service.approveMessage(rid,id,data.accept,data.revision)});
         if(name==='messages'&&action==='send'&&method==='POST')return send({ok:true,item:await service.sendMessage(rid,id,data.revision)});

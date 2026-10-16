@@ -1,0 +1,15 @@
+{
+  "command": "npm test",
+  "results": {
+    "tests": 1138,
+    "pass": 1138,
+    "fail": 0,
+    "skipped": 0
+  },
+  "newTests": 20,
+  "failedReproductionsBeforeFix": 10,
+  "productionFaultInjection": false,
+  "liveProvidersUsed": false,
+  "realPdfRendererTested": true,
+  "visualPdfInspection": false
+}

@@ -13,7 +13,7 @@ export function missing(d){return ['subject','relief','decision','facts','ground
 export function reviewFingerprint(d,user,target,channel){return createHash('sha256').update(JSON.stringify({answers:d.answers,profile:{name:user.name,identity:user.identity,prisonerNumber:user.prisonerNumber,prison:user.prison,wing:user.wing},court:d.court,attachments:d.attachments||[],target,channel})).digest('hex');}
 export function attachmentInput(name,mime,base64){
   name=validText(name,150);if(/[\/\\\x00-\x1f]/.test(name))throw Error('שם קובץ אינו תקין.');
-  if(typeof base64!=='string'||base64.length>7*1024*1024||!/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64))throw Error('קובץ גדול מדי או לא תקין.');
+  if(typeof base64!=='string'||base64.length>7*1024*1024||base64.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(base64))throw Error('קובץ גדול מדי או לא תקין.');
   const bytes=Buffer.from(base64,'base64');if(!bytes.length||bytes.length>5*1024*1024)throw Error('קובץ גדול מדי או ריק.');
   const signature=mime==='application/pdf'?bytes.subarray(0,5).toString()==='%PDF-':mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):mime==='image/jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:false;
   if(!signature)throw Error('סוג הקובץ אינו תואם לתוכן.');return {name,mime,base64,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};

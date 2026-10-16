@@ -2,17 +2,24 @@
 import ctypes, ctypes.util, io, json, os, re, sys
 from pathlib import Path
 def env(name): return os.environ.get(name, '')
-def visual(text):
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def rtl_converter():
     try:
         from bidi.algorithm import get_display
-        return get_display(text,base_dir='R')
+        return lambda text: get_display(text, base_dir='R')
     except ImportError:
         lib=ctypes.CDLL(ctypes.util.find_library('fribidi'))
-        n=len(text); inp=(ctypes.c_uint32*n)(*map(ord,text)); out=(ctypes.c_uint32*n)()
-        direction=ctypes.c_uint32(0x111)
         lib.fribidi_log2vis.argtypes=[ctypes.POINTER(ctypes.c_uint32),ctypes.c_int,ctypes.POINTER(ctypes.c_uint32),ctypes.POINTER(ctypes.c_uint32),ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p]
-        if not lib.fribidi_log2vis(inp,n,ctypes.byref(direction),out,None,None,None): raise RuntimeError('RTL conversion failed')
-        return ''.join(map(chr,out))
+        def convert(text):
+            n=len(text); inp=(ctypes.c_uint32*n)(*map(ord,text)); out=(ctypes.c_uint32*n)()
+            direction=ctypes.c_uint32(0x111)
+            if not lib.fribidi_log2vis(inp,n,ctypes.byref(direction),out,None,None,None): raise RuntimeError('RTL conversion failed')
+            return ''.join(map(chr,out))
+        return convert
+
+def visual(text): return rtl_converter()(text)
 
 def pdf(document, test=False):
     from reportlab.pdfgen.canvas import Canvas
@@ -71,11 +78,11 @@ def pdf(document, test=False):
 
 if __name__ == '__main__':
     try:
-        raw=sys.stdin.buffer.read(150001)
-        if len(raw)>150000: raise ValueError('Input too large')
+        raw=sys.stdin.buffer.read(700001)
+        if len(raw)>700000: raise ValueError('Input too large')
         payload=json.loads(raw)
         document=payload['document']
-        if not isinstance(document,str) or len(document)>30000: raise ValueError('Invalid document')
+        if not isinstance(document,str) or len(document)>100000: raise ValueError('Invalid document')
         sys.stdout.buffer.write(pdf(document, bool(payload.get('test',True))))
     except Exception:
         sys.stderr.write('PDF rendering failed: check Python dependencies and Hebrew font configuration.\n')

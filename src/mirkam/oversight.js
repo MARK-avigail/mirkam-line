@@ -1,6 +1,6 @@
 export class Oversight {
   constructor(service){this.service=service;this.store=service.store;}
-  grant(id,actor){const u=this.store.get('user',id);if(!u)throw Error('החשבון לא נמצא.');const result=this.store.put('user',{...u,oversight:true,membership:'free'});this.store.audit(actor,'oversight.granted',id);return {id:result.id,code:result.code};}
+  grant(id,actor){return this.store.atomic(()=>{const u=this.store.get('user',id);if(!u)throw Error('החשבון לא נמצא.');const result=this.store.put('user',{...u,oversight:true,membership:'free'});this.store.audit(actor,'oversight.granted',id);return {id:result.id,code:result.code};});}
   require(id){const u=this.service.identity.user(id);if(u.oversight!==true)throw Object.assign(Error('אין הרשאת פיקוח.'),{status:403});return u;}
   target(actor,code){this.require(actor);const u=this.store.list('user').find(u=>u.code===code);if(!u)throw Error('קוד המשתמש לא נמצא.');return u;}
   read(actor,code,kind){const u=this.target(actor,code);if(!['conversation','draft'].includes(kind))throw Error('סוג מידע לא מורשה.');this.store.audit(actor,'oversight.read.'+kind,u.id);return this.store.list(kind,u.id);}
