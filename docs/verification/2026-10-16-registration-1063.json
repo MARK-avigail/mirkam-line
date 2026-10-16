@@ -1,0 +1,7 @@
+{
+  "tests": 1063,
+  "pass": 1063,
+  "fail": 0,
+  "skipped": 0,
+  "scope": "Local software tests; UI uses simulated DOM; live phone/fax/AI and browser acceptance remain unverified"
+}

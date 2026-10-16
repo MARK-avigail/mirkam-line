@@ -1,4 +1,4 @@
-import { validText } from './workflow.js';
+import { validText, TOPICS } from './workflow.js';
 import { createHash } from 'node:crypto';
 export function documentPackage(d,user,now=d.createdAt||Date.now()) {
   const documentDate=new Intl.DateTimeFormat('en-CA',{timeZone:process.env.MIRKAM_TIMEZONE||'Asia/Jerusalem',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
@@ -17,4 +17,10 @@ export function attachmentInput(name,mime,base64){
   const bytes=Buffer.from(base64,'base64');if(!bytes.length||bytes.length>5*1024*1024)throw Error('קובץ גדול מדי או ריק.');
   const signature=mime==='application/pdf'?bytes.subarray(0,5).toString()==='%PDF-':mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):mime==='image/jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:false;
   if(!signature)throw Error('סוג הקובץ אינו תואם לתוכן.');return {name,mime,base64,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
+}
+
+// The management preview uses the same renderer as telephone-created petitions.
+export function documentTemplate(){
+ const answers=Object.fromEntries(TOPICS.map(topic=>[topic.key,'[להשלמה: '+topic.label+']']));
+ return documentPackage({id:'תבנית לדוגמה בלבד',answers}, {name:'[שם העותר]',identity:'[מספר זהות]',prisonerNumber:'[מספר אסיר]',prison:'[בית סוהר]',wing:'[אגף]'});
 }

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { safeUser } from './identity.js';
+import { documentTemplate, documentPackage, missing } from './documents.js';
 import { BRANCHES } from './workflow.js';
 import { renderPdf,renderDocx } from '../documents.js';
 import { createVoice } from './voice.js';
@@ -41,11 +42,22 @@ export function createMirkamServer(service){
         if(suffix==='owner-profile'&&method==='POST')return send({ok:true,result:service.staff.createOwner(data.username,data.name,actor)});
         if(suffix==='oversight'&&method==='POST')return send({ok:true,result:service.oversight.grant(data.userId,actor)});
         if(suffix==='staff'&&method==='POST')return send({ok:true,result:service.staff.create(data.name,data.role,actor)});
+        if(suffix==='document-template'&&method==='GET')return send({ok:true,previewOnly:true,documents:documentTemplate()});
+        const preview=suffix.match(/^drafts\/([a-f0-9-]+)\/(package|pdf|docx)$/);
+        if(preview&&method==='GET'){
+          const d=service.store.get('draft',preview[1]);if(!d)throw Object.assign(Error('העתירה לא נמצאה.'),{status:404});
+          const profile=service.store.get('user',d.owner);if(!profile)throw Object.assign(Error('חשבון העותר לא נמצא.'),{status:404});
+          const documents=documentPackage(d,profile);
+          if(preview[2]==='package')return send({ok:true,previewOnly:true,stage:d.stage,missing:missing(d),documents});
+          const doc=documents.find(item=>item.kind===u.searchParams.get('kind'));if(!doc)throw Object.assign(Error('מסמך לא נמצא.'),{status:404});
+          const pdf=preview[2]==='pdf',bytes=pdf?await renderPdf(doc.text,{test:true}):renderDocx(doc.text,{test:true});
+          res.writeHead(200,{'Content-Type':pdf?'application/pdf':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','Content-Disposition':`attachment; filename="preview-${doc.kind}.${preview[2]}"`});return res.end(bytes);
+        }
         if(suffix==='membership'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>({id:u.id,name:u.name,...service.membership(u.id)}))});
         if(suffix==='payments'&&method==='GET')return send({ok:true,items:service.store.list('payment')});
         if(['conversations','drafts','messages'].includes(suffix)&&method==='GET'){const kind={conversations:'conversation',drafts:'draft',messages:'message'}[suffix];return send({ok:true,items:service.store.list(kind)});}
         if(suffix==='users'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>{const {code,...profile}=safeUser(u);return profile;})});
-        if(suffix==='users'&&method==='POST'){if(data.freeMembership===true&&auth.role!=='owner')throw Error('רק בעלת המערכת יכולה לאשר הטבת מינוי.');return send({ok:true,...service.identity.register(data,actor)});}
+        if(suffix==='users'&&method==='POST'){if(data.verificationConfirmed!==true)throw Error('יש לאשר שבוצע אימות זהות וזכאות לפני הרישום.');if(data.freeMembership===true&&auth.role!=='owner')throw Error('רק בעלת המערכת יכולה לאשר הטבת מינוי.');return send({ok:true,...service.identity.register(data,actor)});}
         if(suffix==='destinations'&&method==='POST')return send({ok:true,item:service.setDestination(data,actor)});
         if(suffix==='contacts'&&method==='POST')return send({ok:true,item:service.approveContact(data.userId,data,actor)});
         if(suffix==='announcements'&&method==='POST')return send({ok:true,item:service.announce(data.text,actor)});

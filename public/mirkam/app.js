@@ -2,7 +2,9 @@
 const $=id=>document.getElementById(id);let token='',user=null,draft=null,conversation=null,message=null,busy=false,recorder=null,stream=null;
 const pane=$('pane');let adminSession='',adminRole='',sessionTimer,authEpoch=0;
 window.mirkamStaffAuthenticated=false;
-function lockManagement(){authEpoch++;clearTimeout(sessionTimer);adminSession='';adminRole='';token='';user=draft=conversation=message=null;window.mirkamStaffAuthenticated=false;document.body?.classList.add('locked');for(const id of ['suite-sidebar','app-header','app-footer','admin','workspace','login'])$(id).hidden=true;$('staff-gate').hidden=false;$('staff-password').value='';$('admin-token').value='';$('pin').value='';$('code').value='';$('admin-pane').replaceChildren();$('owner-result').replaceChildren();pane.replaceChildren();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
+let credentialPanel=null,credentialTimer;
+function clearCredentials(){clearTimeout(credentialTimer);if(credentialPanel)credentialPanel.replaceChildren();credentialPanel=null;}
+function lockManagement(){clearCredentials();$('status').textContent='';authEpoch++;clearTimeout(sessionTimer);adminSession='';adminRole='';token='';user=draft=conversation=message=null;window.mirkamStaffAuthenticated=false;document.body?.classList.add('locked');for(const id of ['suite-sidebar','app-header','app-footer','admin','workspace','login'])$(id).hidden=true;$('staff-gate').hidden=false;$('staff-password').value='';$('admin-token').value='';$('pin').value='';$('code').value='';$('admin-pane').replaceChildren();$('owner-result').replaceChildren();pane.replaceChildren();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
 function unlockManagement(role){adminRole=role;window.mirkamStaffAuthenticated=true;document.body?.classList.remove('locked');$('staff-gate').hidden=true;for(const id of ['suite-sidebar','app-footer','admin'])$(id).hidden=false;$('admin').open=true;const owner=role==='owner';for(const id of ['suite-line','suite-chats','suite-documents','suite-family','admin-destinations','admin-announcement'])$(id).hidden=!owner;$('admin-users').hidden=!['owner','support'].includes(role);$('admin-contacts').hidden=!['owner','support'].includes(role);$('admin-tickets').hidden=!['owner','support'].includes(role);clearTimeout(sessionTimer);sessionTimer=setTimeout(()=>{lockManagement();$('status').textContent='ההתחברות הסתיימה. היכנסו שוב.';},600000);window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
 function requireManagement(){if(!adminSession){lockManagement();throw Error('יש להיכנס לניהול עם שם משתמש וסיסמה.');}}
 function suiteActive(id){document.querySelectorAll('.suite-sidebar button').forEach(b=>{if(b.id===id)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});}
@@ -22,14 +24,26 @@ $('suite-line').onclick=()=>run(async()=>{
  for(const b of r.branches){const box=node('section');box.className='branch-card';box.append(node('h3','שלוחה '+b.digit+' — '+b.title));for(const child of b.children)box.append(node('p',child.digit+' · '+child.title));p.append(box);}
  p.append(node('p','הצגת התפריט אינה אישור לחיבור קו פעיל. יש לבדוק שיחה נכנסת, זיהוי, שמירה וחזרה לטיוטה מול ספק הטלפוניה.'));reveal(p);
 });
-for(const [id,resource,title] of [['suite-chats','conversations','שיחות'],['suite-documents','drafts','עתירות ומסמכים'],['suite-family','messages','קשר עם המשפחה']])$(id).onclick=()=>run(async()=>{requireManagement();const r=await api('admin/'+resource,'GET',undefined,true);suiteActive(id);const p=$('admin-pane');p.replaceChildren(node('h2',title));if(!r.items.length)p.append(node('p',resource==='drafts'?'אין פריטים שמורים. עתירות שנוצרות בקו הטלפוני יופיעו כאן להמשך מעקב.':'אין פריטים שמורים.'));for(const item of r.items){const box=node('section');box.append(node('h3',item.name||item.answers?.subject||'פריט שמור'));box.append(node('pre',resource==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):resource==='drafts'?Object.values(item.answers||{}).join('\n'):item.text||''));p.append(box);}reveal(p);});
+for(const [id,resource,title] of [['suite-chats','conversations','שיחות'],['suite-documents','drafts','עתירות ומסמכים'],['suite-family','messages','קשר עם המשפחה']])$(id).onclick=()=>run(async()=>{requireManagement();const r=await api('admin/'+resource,'GET',undefined,true);suiteActive(id);const p=$('admin-pane');p.replaceChildren(node('h2',title));if(!r.items.length)p.append(node('p',resource==='drafts'?'אין פריטים שמורים. עתירות שנוצרות בקו הטלפוני יופיעו כאן להמשך מעקב.':'אין פריטים שמורים.'));if(resource==='drafts')button('הצגת תבנית העתירה והמסמכים הנלווים',()=>showAdminDocuments(),p);for(const item of r.items){const box=node('section');box.append(node('h3',item.name||item.answers?.subject||'פריט שמור'));box.append(node('pre',resource==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):resource==='drafts'?Object.values(item.answers||{}).join('\n'):item.text||''));if(resource==='drafts')button('פתיחת העתירה והמסמכים',()=>showAdminDocuments(item.id),box);p.append(box);}reveal(p);});
+async function showAdminDocuments(id){
+ const route=id?'admin/drafts/'+id+'/package':'admin/document-template',r=await api(route,'GET',undefined,true),p=$('admin-pane');
+ p.replaceChildren(node('h2',id?'תצוגת העתירה והמסמכים':'תבנית העתירה והמסמכים הנלווים'),node('p',id?'תצוגה לבדיקה בלבד — אינה אישור להגשה או לשליחה.':'זו התבנית שהמערכת ממלאת מהתשובות שנאספות בקו. הצגתה אינה יוצרת עתירה או חשבון.'));
+ if(r.missing?.length)p.append(node('p','הטיוטה אינה מלאה; נותרו '+r.missing.length+' שדות חובה להשלמה בקו.'));
+ for(const doc of r.documents){const box=node('section');box.className='document-preview';box.append(node('h3',doc.title),node('pre',doc.text));
+  if(id)for(const ext of ['pdf','docx'])button('הורדת תצוגה לבדיקה · '+ext.toUpperCase(),async()=>{
+   const blob=await api('admin/drafts/'+id+'/'+ext+'?kind='+doc.kind,'GET',undefined,true,true),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='preview-'+doc.kind+'.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+  },box);
+  p.append(box);
+ }
+ const back=node('button','חזרה לרשימת העתירות');back.type='button';back.onclick=()=>$('suite-documents').onclick();p.append(back);reveal(p);
+}
 $('suite-management').onclick=()=>run(async()=>{requireManagement();suiteActive('suite-management');$('workspace').hidden=true;$('login').hidden=true;$('admin').hidden=false;$('admin').open=true;reveal($('admin'));});
 function node(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;}
 function reveal(element){element.scrollIntoView?.({behavior:'smooth',block:'start'});}
 function clear(title){pane.replaceChildren(node('h2',title));reveal(pane);}
 function button(text,fn,parent=pane){const b=node('button',text);b.type='button';b.onclick=()=>run(fn);parent.append(b);return b;}
 function input(label,type='text',parent=pane){const l=node('label',label),i=document.createElement(type==='textarea'?'textarea':'input');if(type!=='textarea')i.type=type;l.append(i);parent.append(l);return i;}
-async function api(route,method='GET',data,admin=false,binary=false){const epoch=authEpoch;if(!navigator.onLine)throw Error('אין חיבור לאינטרנט. כניסה, שיחות ושליחה יהיו זמינות כשהחיבור יחזור.');const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);try{const r=await fetch('/api/'+route,{method,headers:{Authorization:'Bearer '+(admin?(adminSession||$('admin-token').value):token),...(data?{'Content-Type':'application/json'}:{})},body:data?JSON.stringify(data):undefined,signal:controller.signal});if(binary&&r.ok)return r.blob();if(!r.headers.get('content-type')?.includes('application/json'))throw Error('השרת החזיר תשובה לא צפויה. נסו שוב או בדקו את מצב השירות.');const v=await r.json();if(admin&&epoch!==authEpoch)throw Error('ההתחברות הסתיימה. היכנסו שוב.');if(!r.ok||v.ok===false){if(admin&&r.status===401)lockManagement();throw Error(v.error||'הפעולה לא הושלמה.');}return v;}catch(e){if(e instanceof TypeError)throw Error('לא ניתן להגיע לשרת כרגע. בדקו את החיבור ואת פעילות השרת.');if(e.name==='AbortError')throw Error('השרת לא ענה בזמן. לפני משלוח נוסף בדקו את ההיסטוריה.');throw e;}finally{clearTimeout(timer);}}
+async function api(route,method='GET',data,admin=false,binary=false){const epoch=authEpoch;if(!navigator.onLine)throw Error('אין חיבור לאינטרנט. כניסה, שיחות ושליחה יהיו זמינות כשהחיבור יחזור.');const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);try{const r=await fetch('/api/'+route,{method,headers:{Authorization:'Bearer '+(admin?(adminSession||$('admin-token').value):token),...(data?{'Content-Type':'application/json'}:{})},body:data?JSON.stringify(data):undefined,signal:controller.signal});if(admin&&epoch!==authEpoch)throw Error('ההתחברות הסתיימה. היכנסו שוב.');if(binary&&r.ok)return r.blob();if(!r.headers.get('content-type')?.includes('application/json'))throw Error('השרת החזיר תשובה לא צפויה. נסו שוב או בדקו את מצב השירות.');const v=await r.json();if(admin&&epoch!==authEpoch)throw Error('ההתחברות הסתיימה. היכנסו שוב.');if(!r.ok||v.ok===false){if(admin&&r.status===401)lockManagement();throw Error(v.error||'הפעולה לא הושלמה.');}return v;}catch(e){if(e instanceof TypeError)throw Error('לא ניתן להגיע לשרת כרגע. בדקו את החיבור ואת פעילות השרת.');if(e.name==='AbortError')throw Error('השרת לא ענה בזמן. לפני משלוח נוסף בדקו את ההיסטוריה.');throw e;}finally{clearTimeout(timer);}}
 async function run(fn){if(busy)return;busy=true;const status=$('status');status.textContent='מבצעים את הפעולה…';const buttons=[...document.querySelectorAll('#workspace button, #admin button, .suite-sidebar button, #login button')].filter(b=>!b.disabled);buttons.forEach(b=>b.disabled=true);try{await fn();if(status.textContent==='מבצעים את הפעולה…')status.textContent='';}catch(e){status.textContent=e.message||'הפעולה לא הושלמה.';reveal(status);}finally{busy=false;buttons.forEach(b=>b.disabled=false);}}
 
 function speak(text){if(!window.speechSynthesis){$('status').textContent='הקראה אינה נתמכת בדפדפן הזה.';return;}speechSynthesis.cancel();const voice=speechSynthesis.getVoices().find(v=>/^he/i.test(v.lang));if(!voice){$('status').textContent='לא נמצא קול עברי בדפדפן. הקול הטלפוני מוגדר בנפרד.';return;}for(const part of String(text).match(/[\s\S]{1,600}/g)||[]){const u=new SpeechSynthesisUtterance(part);u.lang='he-IL';u.voice=voice;u.rate=.9;speechSynthesis.speak(u);}}
@@ -69,7 +83,42 @@ async function renderDraft(){draft=(await api('drafts/'+draft.id)).draft;clear(d
 function renderConversation(){clear(conversation.name);for(const m of conversation.messages){const p=node('p',(m.role==='user'?'אתם: ':'העוזר: ')+m.text);p.className='message';pane.append(p);}const text=input('מה תרצו לשאול או להוסיף?','textarea');button('הקלטה',()=>audio(text));button('שליחה לעוזר',async()=>{conversation=(await api('conversations/'+conversation.id+'/chat','POST',{text:text.value,revision:conversation.revision})).item;renderConversation();});}
 function renderMessage(c){clear('בדיקת הודעה אל '+c.name);pane.append(node('pre',message.text));button('הקראה',()=>speak(message.text));button('אישור התוכן והנמען',async()=>{message=(await api('messages/'+message.id+'/approve','POST',{accept:true,revision:message.revision})).item;renderMessage(c);});if(message.status==='approved')button('שליחה',async()=>{message=(await api('messages/'+message.id+'/send','POST',{revision:message.revision})).item;clear('הודעה שמורה');pane.append(node('p',message.status));});}
 function adminForm(title,fields,onSubmit){const p=$('admin-pane');p.replaceChildren(node('h3',title));const inputs={};fields.forEach(([key,label,type])=>inputs[key]=input(label,type||'text',p));button('שמירה',async()=>{await onSubmit(Object.fromEntries(Object.entries(inputs).map(([k,i])=>[k,i.type==='checkbox'?i.checked:i.value])));if($('status').textContent==='מבצעים את הפעולה…')$('status').textContent='הפרטים נשמרו.';reveal($('status'));},p);reveal(p);}
-$('admin-users').onclick=()=>run(async()=>{const r=await api('admin/users','GET',undefined,true),p=$('admin-pane');p.replaceChildren(node('h3','משתמשים'));reveal(p);if(!r.items.length)p.append(node('p','עדיין אין משתמשים. לחצו על משתמש חדש.'));r.items.forEach(u=>{p.append(node('p',u.name+' · '+u.prison));button('הענקת פיקוח טלפוני ללא חיוב ל־'+u.name,async()=>{if(!window.confirm('לאפשר צפייה בשיחות ומסמכים של אחרים, נתוני שירות ותשלום וחסימת חשבונות? אישור אנשי קשר נשאר אצל בעלת המערכת.'))return;await api('admin/oversight','POST',{userId:u.id},true);$('status').textContent='הרשאת הפיקוח והטבת המינוי נשמרו.';},p);button('איפוס PIN של '+u.name,async()=>{const result=await api('admin/users/'+u.id+'/reset','POST',{},true);$('status').textContent='PIN חדש להצגה פרטית: '+result.result.pin;},p);});button('משתמש חדש',async()=>adminForm('רישום לאחר אימות זכאות',[['name','שם'],['identity','מספר זהות'],['prisonerNumber','מספר אסיר'],['prison','בית סוהר'],['wing','אגף'],['freeMembership','הטבת מינוי ללא חיוב, באישור בעלת המערכת','checkbox']],async data=>{const r=await api('admin/users','POST',data,true);$('status').textContent='קוד משתמש: '+r.user.code+' · PIN להצגה פרטית: '+r.pin;}),p);});
+function showCredentials(name,credentials){
+ clearCredentials();const p=$('admin-pane');p.replaceChildren(node('h3','פרטי כניסה עבור '+name));
+ const panel=node('section');credentialPanel=panel;panel.className='credential-card';
+ panel.append(node('p','הפרטים נועדו למסירה פרטית למשתמש הקו. ההצגה תיסגר במעבר מסך או לאחר דקה.'));
+ const display=node('div');
+ button('הצגת פרטי הכניסה',async()=>{display.replaceChildren();if(credentials.code)display.append(node('p','קוד משתמש: '+credentials.code));display.append(node('p','PIN: '+credentials.pin));},panel);
+ panel.append(display);button('סגירת פרטי הכניסה',async()=>clearCredentials(),panel);p.append(panel);
+ credentialTimer=setTimeout(()=>{clearCredentials();},60000);
+ $('status').textContent='הפעולה הושלמה. פרטי הכניסה זמינים באזור הפרטי למטה.';reveal(p);
+}
+$('admin-users').onclick=()=>run(async()=>{
+ const r=await api('admin/users','GET',undefined,true),p=$('admin-pane');p.replaceChildren(node('h3','משתמשי הקו'));reveal(p);
+ if(!r.items.length)p.append(node('p','עדיין אין משתמשים. לחצו על משתמש חדש.'));
+ r.items.forEach(u=>{
+  const card=node('section');card.className='user-card';card.append(node('h3',u.name),node('p',u.prison+(u.wing?' · אגף '+u.wing:'')),node('p',u.active===false?'חשבון מושעה':'חשבון פעיל'));
+  button('איפוס PIN',async()=>{if(!window.confirm('לאפס את ה-PIN של '+u.name+'? הקוד הקודם לא יעבוד והחיבורים הקיימים יבוטלו.'))return;const result=await api('admin/users/'+u.id+'/reset','POST',{},true);showCredentials(u.name,result.result);},card);
+  if(adminRole==='owner'){
+   const advanced=node('details');advanced.className='advanced-permissions';advanced.append(node('summary','הרשאות פיקוח מיוחדות'));
+   advanced.append(node('p','מיועד למפקח מורשה בלבד. זו הרשאה לצפייה במידע של משתמשים אחרים, ולא הטבת מינוי רגילה.'));
+   if(u.oversight)advanced.append(node('p','פיקוח טלפוני כבר מופעל לחשבון זה.'));
+   else button('הענקת פיקוח טלפוני',async()=>{if(!window.confirm('להעניק ל-'+u.name+' צפייה בשיחות ובמסמכים של אחרים, נתוני שירות ותשלום וחסימת חשבונות? הפעולה כוללת מינוי ללא חיוב.'))return;await api('admin/oversight','POST',{userId:u.id},true);advanced.replaceChildren(node('summary','הרשאות פיקוח מיוחדות'),node('p','פיקוח טלפוני הופעל.'));$('status').textContent='הרשאת הפיקוח והטבת המינוי נשמרו.';},advanced);
+   card.append(advanced);
+  }
+  p.append(card);
+ });
+ button('משתמש חדש',async()=>{
+  const fields=[['name','שם'],['identity','מספר זהות — תשע ספרות'],['prisonerNumber','מספר אסיר'],['prison','בית סוהר'],['wing','אגף']];
+  if(adminRole==='owner')fields.push(['freeMembership','הטבת מינוי ללא חיוב','checkbox']);
+  fields.push(['verificationConfirmed','בדקתי את זהות המשתמש ואת זכאותו לשירות','checkbox']);
+  adminForm('רישום משתמש קו',fields,async data=>{
+   if(data.verificationConfirmed!==true)throw Error('יש לאשר שבוצע אימות זהות וזכאות לפני הרישום.');
+   const r=await api('admin/users','POST',data,true);showCredentials(data.name,{code:r.user.code,pin:r.pin});
+  });
+  p.append(node('p','המערכת בודקת פורמט וכפילויות; היא אינה מאמתת זהות מול מרשם רשמי. האימות מבוצע על ידי איש הצוות.'));
+ },p);
+});
 $('admin-status').onclick=()=>run(async()=>{
  const r=await api('admin/status','GET',undefined,true),p=$('admin-pane');
  p.replaceChildren(node('h2','חיבורים ומוכנות'),node('p','בדיקת הגדרות בלבד — אינה בדיקת שיחה או משלוח חי. תשלום על מנוי AI אינו מגדיר אוטומטית מפתח API בשרת.'));
@@ -80,7 +129,7 @@ $('admin-destinations').onclick=()=>adminForm('יעד מאומת',[['name','שם
 $('admin-contacts').onclick=()=>adminForm('אישור איש קשר',[['userId','מזהה החשבון'],['name','שם איש קשר'],['email','מייל']],data=>api('admin/contacts','POST',data,true));
 $('admin-announcement').onclick=()=>adminForm('הודעת חברה',[['text','הודעה','textarea']],data=>api('admin/announcements','POST',data,true));
 $('admin-tickets').onclick=()=>run(async()=>{const r=await api('admin/tickets','GET',undefined,true);$('admin-pane').replaceChildren(...(r.items.length?r.items.map(t=>node('p',t.text+' · '+t.status)):[node('p','אין פניות שמורות.')]));reveal($('admin-pane'));});
-window.addEventListener('beforeunload',()=>{if(recorder?.state==='recording'){recorder.onstop=null;recorder.stop();}stream?.getTracks().forEach(t=>t.stop());window.speechSynthesis?.cancel();});
+window.addEventListener('beforeunload',()=>{clearCredentials();if(recorder?.state==='recording'){recorder.onstop=null;recorder.stop();}stream?.getTracks().forEach(t=>t.stop());window.speechSynthesis?.cancel();});
 
 $('staff-login-form').onsubmit=e=>{e.preventDefault();return run(async()=>{const r=await api('staff-login','POST',{id:$('staff-username').value.trim(),password:$('staff-password').value});if(!r.token||!['owner','support','billing'].includes(r.role))throw Error('לא התקבלה הרשאת ניהול תקינה.');adminSession=r.token;$('staff-password').value='';$('admin-token').value='';unlockManagement(r.role);$('status').textContent='הכניסה לניהול הצליחה.';managementHome();reveal($('admin'));});};
 $('admin-logout').onclick=()=>run(async()=>{try{if(adminSession)await api('admin/logout','POST',{},true);}finally{lockManagement();$('status').textContent='יצאתם מהניהול.';}});
@@ -105,9 +154,11 @@ for(const id of ['admin-users','admin-status','admin-destinations','admin-contac
  const handler=$(id).onclick;$(id).onclick=()=>{
   if(!adminSession){lockManagement();$('status').textContent='יש להיכנס לניהול.';return;}
   if(!canManage(id)){$('status').textContent='אין הרשאה לתפקיד זה.';return;}
-  return handler();
+  clearCredentials();return handler();
  };
 }
 lockManagement();
 window.mirkamAppReady=true;
 window.addEventListener('error',()=>{const s=$('status');s.textContent='אירעה תקלה בממשק. בדקו את גרסת הממשק בעדכוני התוכנה ודווחו איזו פעולה נכשלה.';reveal(s);});
+
+document.addEventListener?.('visibilitychange',()=>{if(document.hidden)clearCredentials();});

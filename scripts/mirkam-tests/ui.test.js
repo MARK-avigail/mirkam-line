@@ -16,7 +16,7 @@ function ui(fetcher=async()=>new Response('{"ok":true}',{headers:{'content-type'
  const window={addEventListener(){},dispatchEvent(){},confirm:()=>true};const document={body:{classList:{add(){},remove(){}}},getElementById:id=>ids.get(id)||null,createElement:tag=>{const n=new Element(tag);all.push(n);return n;},querySelectorAll:()=>all.filter(n=>n.tag==='button')};
  const context=vm.createContext({window,document,navigator:{onLine:true},fetch:fetcher,AbortController,Event,setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);t.unref();return t;},clearTimeout,URL,console});
  vm.runInContext(fs.readFileSync(new URL('../../public/mirkam/app.js',import.meta.url),'utf8'),context);
- return {ids,all,context,window,submit:id=>ids.get(id).onsubmit({preventDefault(){}}),click:id=>ids.get(id).onclick(),text:id=>ids.get(id).children.map(n=>n.textContent).join(' ')};
+ return {ids,all,context,window,submit:id=>ids.get(id).onsubmit({preventDefault(){}}),click:id=>ids.get(id).onclick(),text:id=>{const text=n=>[n.textContent,...n.children.map(text)].join(' ');return text(ids.get(id));}};
 }
 const json=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json'}});
 test('startup shows staff login and hides internal sections',()=>{const u=ui();for(const id of ['suite-sidebar','admin','workspace','login','app-header','app-footer'])assert.equal(u.ids.get(id).hidden,true,id);assert.equal(u.ids.get('staff-gate').hidden,false);assert.equal(u.window.mirkamStaffAuthenticated,false);});
