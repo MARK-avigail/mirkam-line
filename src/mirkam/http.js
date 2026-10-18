@@ -20,6 +20,7 @@ function staff(req,service){
 }
 export function createMirkamServer(service){
   const voice=createVoice(service);
+  const lineBusy=new Set();
   return http.createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'");
     const send=(data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
@@ -38,6 +39,35 @@ export function createMirkamServer(service){
       if(route.startsWith('/api/admin/')){
         const auth=staff(req,service),actor=auth.actor,suffix=route.slice(11);
         if(!permitted(auth.role,suffix))return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
+        if(suffix==='line-chat'){
+          if(auth.role!=='owner')return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
+          const current=()=>service.store.get('staff-line-chat',actor);
+          if(method==='GET')return send({ok:true,item:current()||{messages:[],revision:0}});
+          if(method==='DELETE'){
+            if(lineBusy.has(actor))return send({ok:false,error:'המתינו לסיום התשובה.'},409);
+            service.store.remove('staff-line-chat',actor);return send({ok:true});
+          }
+          if(method==='POST'){
+            if(typeof data.text!=='string'||!data.text.trim()||data.text.length>4000)throw Error('כתבו הודעה באורך עד 4,000 תווים.');
+            const old=current();
+            if(data.revision!==(old?.revision||0)||lineBusy.has(actor))return send({ok:false,error:'השיחה השתנתה או שכבר נשלחת הודעה. פתחו אותה מחדש.'},409);
+            const usage=service.store.get('staff-line-usage',actor),now=Date.now();
+            if(usage?.until>now&&usage.count>=30)return send({ok:false,error:'הגעתם למגבלת 30 הודעות בשעה. נסו בהמשך.'},429);
+            lineBusy.add(actor);
+            try{
+              const entry={id:actor,count:usage?.until>now?usage.count+1:1,until:usage?.until>now?usage.until:now+3600000};
+              if(usage)service.store.put('staff-line-usage',{...usage,...entry});else service.store.create('staff-line-usage',actor,entry);
+              const messages=[...(old?.messages||[]).slice(-18),{role:'user',text:data.text.trim()}];
+              const answer=await service.providers.chat(messages);
+              staff(req,service);
+              if(typeof answer!=='string'||!answer.trim()||answer.length>12000)throw Error('לא התקבלה תשובה תקינה מליין.');
+              messages.push({role:'assistant',text:answer});
+              const item=old?service.store.put('staff-line-chat',{...old,messages}):service.store.create('staff-line-chat',actor,{id:actor,messages});
+              service.store.audit(actor,'staff.line-chat',actor);
+              return send({ok:true,item});
+            }finally{lineBusy.delete(actor);}
+          }
+        }
         if(suffix==='logout'&&method==='POST'){service.staff.logout((req.headers.authorization||'').replace(/^Bearer /,''));return send({ok:true});}
         if(suffix==='owner-profile'&&method==='POST')return send({ok:true,result:service.staff.createOwner(data.username,data.name,actor)});
         if(suffix==='oversight'&&method==='POST')return send({ok:true,result:service.oversight.grant(data.userId,actor)});

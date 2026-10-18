@@ -14,7 +14,7 @@ function closeDrawer(){ $('suite-sidebar').hidden=true;$('menu-backdrop').hidden
 function configureDrawer(){
  const line=currentArea==='line';
  for(const id of ['suite-line','suite-chats','suite-documents','suite-family','suite-management','admin-users','admin-status','admin-destinations','admin-contacts','admin-announcement','admin-tickets']){
-  const visible=line?['suite-line','suite-documents','admin-status'].includes(id):!['suite-line','suite-management','admin-contacts'].includes(id);
+  const visible=line?['suite-line','suite-chats','suite-documents','admin-status'].includes(id):!['suite-line','suite-management','admin-contacts'].includes(id);
   $(id).hidden=!visible||!canManage(id);
  }
 }
@@ -46,10 +46,20 @@ $('suite-home').onclick=()=>run(async()=>{requireManagement();managementHome();}
 $('suite-line').onclick=()=>run(async()=>{
  requireManagement();const r=await api('admin/line','GET',undefined,true);suiteActive('suite-line');
  const p=$('admin-pane');p.replaceChildren(node('h2','הקו הטלפוני והשלוחות'),node('p','זהו תפריט השירות שהלקוחות שומעים בטלפון. מסך הניהול אינו מחייב אותם להשתמש באפליקציה.'));
+ button('דברי עם ליין',()=>showStaffLine(),p);
  for(const b of r.branches){const box=node('section');box.className='branch-card';box.append(node('h3','שלוחה '+b.digit+' — '+b.title));for(const child of b.children)box.append(node('p',child.digit+' · '+child.title));p.append(box);}
  p.append(node('p','הצגת התפריט אינה אישור לחיבור קו פעיל. יש לבדוק שיחה נכנסת, זיהוי, שמירה וחזרה לטיוטה מול ספק הטלפוניה.'));reveal(p);
 });
-for(const [id,resource,title] of [['suite-chats','conversations','שיחות'],['suite-documents','drafts','עתירות ומסמכים'],['suite-family','messages','קשר עם המשפחה']])$(id).onclick=()=>run(async()=>{requireManagement();const r=await api('admin/'+resource,'GET',undefined,true);suiteActive(id);const p=$('admin-pane');p.replaceChildren(node('h2',title));if(!r.items.length)p.append(node('p',resource==='drafts'?'אין פריטים שמורים. עתירות שנוצרות בקו הטלפוני יופיעו כאן להמשך מעקב.':'אין פריטים שמורים.'));if(resource==='drafts')button('הצגת תבנית העתירה והמסמכים הנלווים',()=>showAdminDocuments(),p);for(const item of r.items){const box=node('section');box.append(node('h3',item.name||item.answers?.subject||'פריט שמור'));box.append(node('pre',resource==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):resource==='drafts'?Object.values(item.answers||{}).join('\n'):item.text||''));if(resource==='drafts')button('פתיחת העתירה והמסמכים',()=>showAdminDocuments(item.id),box);p.append(box);}reveal(p);});
+for(const [id,resource,title] of [['suite-chats','conversations','שיחות'],['suite-documents','drafts','עתירות ומסמכים'],['suite-family','messages','קשר עם המשפחה']])$(id).onclick=()=>run(async()=>{requireManagement();const r=await api('admin/'+resource,'GET',undefined,true);suiteActive(id);const p=$('admin-pane');p.replaceChildren(node('h2',title));if(resource==='conversations')button('דברי עם ליין',()=>showStaffLine(),p);if(!r.items.length)p.append(node('p',resource==='drafts'?'אין פריטים שמורים. עתירות שנוצרות בקו הטלפוני יופיעו כאן להמשך מעקב.':'אין פריטים שמורים.'));if(resource==='drafts')button('הצגת תבנית העתירה והמסמכים הנלווים',()=>showAdminDocuments(),p);for(const item of r.items){const box=node('section');box.append(node('h3',item.name||item.answers?.subject||'פריט שמור'));box.append(node('pre',resource==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):resource==='drafts'?Object.values(item.answers||{}).join('\n'):item.text||''));if(resource==='drafts')button('פתיחת העתירה והמסמכים',()=>showAdminDocuments(item.id),box);p.append(box);}reveal(p);});
+async function showStaffLine(){
+ requireManagement();const r=await api('admin/line-chat','GET',undefined,true),p=$('admin-pane');
+ p.replaceChildren(node('h2','מדברים עם ליין'),node('p','שיחה אישית לניהול עם ליין. היא נפרדת משיחות הלקוחות; מוצגות עד 20 ההודעות האחרונות.'));
+ for(const m of r.item.messages){const box=node('section');box.append(node('h3',m.role==='user'?'את':'ליין'),node('p',m.text));p.append(box);}
+ const label=node('label','ההודעה שלך לליין'),text=node('textarea');text.maxLength=4000;label.append(text);p.append(label);
+ button('שליחה לליין',async()=>{if(!text.value.trim())throw Error('כתבי הודעה לליין.');await api('admin/line-chat','POST',{text:text.value,revision:r.item.revision},true);await showStaffLine();},p);
+ button('שיחה חדשה',async()=>{if(!window.confirm('למחוק את שיחת הניהול הנוכחית ולהתחיל מחדש?'))return;await api('admin/line-chat','DELETE',undefined,true);await showStaffLine();},p);
+ reveal(p);
+}
 async function showAdminDocuments(id,ownerId=null){
  const route=id?'admin/drafts/'+id+'/package':'admin/document-template',r=await api(route,'GET',undefined,true),p=$('admin-pane');
  p.replaceChildren(node('h2',id?'תצוגת העתירה והמסמכים':'תבנית העתירה והמסמכים הנלווים'),node('p',id?'תצוגה לבדיקה בלבד — אינה אישור להגשה או לשליחה.':'זו התבנית שהמערכת ממלאת מהתשובות שנאספות בקו. הצגתה אינה יוצרת עתירה או חשבון.'));
@@ -215,7 +225,7 @@ for(const id of ['admin-users','admin-status','admin-destinations','admin-contac
  const handler=$(id).onclick;$(id).onclick=()=>{
   if(!adminSession){lockManagement();$('status').textContent='יש להיכנס לניהול.';return;}
   if(!canManage(id)){$('status').textContent='אין הרשאה לתפקיד זה.';return;}
-  clearCredentials();if(id!=='suite-home'){enterArea(id==='suite-line'?'line':(['suite-documents','admin-status'].includes(id)&&currentArea==='line'?'line':'management'));}return handler();
+  clearCredentials();if(id!=='suite-home'){enterArea(id==='suite-line'?'line':(['suite-chats','suite-documents','admin-status'].includes(id)&&currentArea==='line'?'line':'management'));}return handler();
  };
 }
 lockManagement();
