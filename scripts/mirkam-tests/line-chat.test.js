@@ -56,3 +56,31 @@ test('expired staff session cannot receive or save an in-flight answer',async t=
  while(!release)await new Promise(resolve=>setImmediate(resolve));
  service.staff.logout(token);release('private answer');const r=await pending;assert.equal(r.status,401);assert.equal(store.list('staff-line-chat').length,0);
 });
+test('new chats preserve legacy history, resume old chats and supply only own cross-chat context',async t=>{
+ const {service,server,store}=fixture(t);store.create('staff-line-chat','owner',{id:'owner',messages:[{role:'user',text:'קוראים לי אביגיל'},{role:'assistant',text:'נעים להכיר'}]});
+ store.create('staff-line-chat','other',{messages:[{role:'user',text:'OTHER_PRIVATE'}]});
+ const base='/api/admin/line-chat';let r=await request(server,base+'/new','POST',master,{});assert.equal(r.status,200);const next=r.body.item;
+ assert.notEqual(next.id,'owner');assert.equal(store.get('staff-line-chat','owner').messages.length,2);
+ service.providers.chat=async context=>{assert.match(context[0].text,/אביגיל/);assert.ok(!JSON.stringify(context).includes('OTHER_PRIVATE'));return 'שלום אביגיל';};
+ r=await request(server,base,'POST',master,{id:next.id,text:'מה שמי?',revision:next.revision});assert.equal(r.status,200);
+ r=await request(server,base,'GET',master);assert.equal(r.body.items.length,2);
+ r=await request(server,base+'?id=owner','GET',master);assert.equal(r.body.item.messages[0].text,'קוראים לי אביגיל');
+ const other=store.list('staff-line-chat','other')[0];r=await request(server,base+'?id='+other.id,'GET',master);assert.notEqual(r.status,200);
+});
+test('long history is retained while AI context stays bounded',async t=>{
+ const {service,server,store}=fixture(t);const messages=Array.from({length:24},(_,i)=>({role:i%2?'assistant':'user',text:'message '+i}));const c=store.create('staff-line-chat','owner',{messages});
+ service.providers.chat=async context=>{assert.equal(context.length,19);return 'answer';};
+ const r=await request(server,'/api/admin/line-chat','POST',master,{id:c.id,text:'next',revision:c.revision});assert.equal(r.status,200);assert.equal(r.body.item.messages.length,26);assert.equal(r.body.item.messages[0].text,'message 0');
+});
+test('active staff session renews, idle expired session remains rejected',async t=>{
+ const {service,store}=fixture(t),owner=service.staff.createOwner('avigail','test','owner'),token=service.staff.login(owner.id,owner.password).token;
+ let record=store.list('staff-token')[0];assert.ok(record.expiresAt>Date.now()+3500000);
+ record=store.put('staff-token',{...record,expiresAt:Date.now()+20000});service.staff.authenticate(token);
+ record=store.get('staff-token',record.id);assert.ok(record.expiresAt>Date.now()+3500000);
+ store.put('staff-token',{...record,expiresAt:Date.now()-1});assert.throws(()=>service.staff.authenticate(token));
+});
+test('opening a new chat in the UI never calls DELETE',async()=>{
+ const calls=[];const u=ui(async(url,o)=>{calls.push([url,o.method]);return json(url==='/api/staff-login'?{ok:true,token:'s',role:'owner'}:url==='/api/admin/line'?{ok:true,branches:[]}:{ok:true,item:{id:'new',messages:[],revision:1},items:[{id:'old',name:'השיחה הקודמת'}]});});
+ await u.submit('staff-login-form');await u.click('suite-line');await u.all.find(n=>n.textContent==='דברי עם ליין').onclick();await u.all.find(n=>n.textContent==='שיחה חדשה').onclick();
+ assert.ok(calls.some(([url,method])=>url==='/api/admin/line-chat/new'&&method==='POST'));assert.ok(!calls.some(([,method])=>method==='DELETE'));assert.match(u.text('admin-pane'),/השיחה הקודמת/);
+});
