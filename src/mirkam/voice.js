@@ -42,7 +42,7 @@ export function createVoice(service,transport={}){
     if(!(transport.callPattern||/^CA[a-f0-9]{32}$/i).test(data.CallSid||'')){res.writeHead(400);return res.end();}
     let c=store.get('call',data.CallSid),out='';
     const nonce=new URL(req.url,'http://localhost').searchParams;
-    const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
+    const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('<Gather ',['family-review','delivery-confirm','oversight-confirm'].includes(c.phase)?'<Gather clearDigits="true" ':'<Gather ').replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
     const record=(text,maxLength=180)=>{c={...c,recordNonce:randomUUID()};return say(text)+`<Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="${maxLength}" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;};
     try{
       if(!c)c=store.create('call','voice',{id:data.CallSid,phase:'login-code',silence:0});
@@ -55,9 +55,9 @@ export function createVoice(service,transport={}){
       if(c.silence>5){out=say(c.phase.startsWith('login-')?'לא התקבלה הקשה במשך כמה ניסיונות. נסיים עכשיו, ואפשר להתקשר שוב כשהקודים מוכנים.':'לא התקבל קלט. העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
       else if(c.phase==='login-code'){
         if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('עכשיו הקישו את הקוד האישי, שש ספרות.',6);}
-        else out=gather(c.silence>1||digit?'ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות.':'שלום, הגעתם למרקם ליין, עם עוזר בינה מלאכותית. תמלולים והקלטות מילוי נשמרים להמשך העבודה לפי מדיניות השירות. הקודים אינם מוקלטים. הקישו את קוד המשתמש, שש ספרות.',6);
+        else out=gather(c.silence>1||digit?'ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות.':'שלום, כאן מרקם ליין, עם עוזר בינה מלאכותית. טוב שאתם כאן. הקישו קוד משתמש, שש ספרות.',6);
       }else if(c.phase==='login-pin'){
-        if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main'});out=redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
+        if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main',speech:`שלום ${login.user.name.split(/\s+/)[0]}, מה שלומך? אני כאן לעזור. תמלולים והקלטות מילוי נשמרים להמשך העבודה. הקודים אינם מוקלטים.`});out=redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
         else out=gather('לא התקבל קוד מלא. זה בסדר, אפשר לנסות שוב בנחת. הקישו את כל שש הספרות של הקוד האישי. יש לכם שלושים שניות.',6);
       }else{
         let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id,token=c.token,validate=()=>service.identity.authenticate(token);
@@ -69,7 +69,7 @@ export function createVoice(service,transport={}){
         else if(c.phase==='main'){
           const completion=c.speech;c={...c,speech:null};
           if(digit==='6'&&user.oversight){c=save({...c,phase:'oversight'});out=redirect();}else {const b=BRANCHES.find(b=>b.digit===digit);if(b){c=save({...c,phase:'branch',branch:b.digit});out=redirect();}else out=gather(BRANCHES.map(b=>`${b.title}, הקישו ${b.digit}`).join('. ')+(user.oversight?'. לפיקוח הקישו 6.':''));}
-          if(completion)out=say(completion)+out;
+          if(completion)out=out.includes('<Gather')?out.replace(/(<Say[^>]*>)/,match=>match+escape(completion)+' '):say(completion)+out;
         }else if(c.phase==='oversight'){
           service.oversight.require(uid);
           if(digit==='1'){const s=service.oversight.summary(uid);out=say(`חשבונות: ${s.accounts}. פעילים: ${s.active}. פניות: ${s.tickets}. בקשות בינה מלאכותית: ${s.aiRequests}. תשלומים מאומתים: ${s.paymentsAgorot/100} שקלים. עלות ספקי השירות בפועל עדיין אינה מסונכרנת. הגדרות בינה מלאכותית: ${s.aiConfigured?'קיימות':'חסרות'}. הגדרות מייל: ${s.emailConfigured?'קיימות':'חסרות'}.`)+gather('לחזרה לתפריט הראשי 8.');}

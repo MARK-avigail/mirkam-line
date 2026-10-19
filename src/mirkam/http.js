@@ -22,6 +22,7 @@ function staff(req,service){
 export function createMirkamServer(service){
   const voice=createVoice(service),voiceElements=createVoiceElements(service);
   const lineBusy=new Set();
+  const voiceSamples=new Map();let sampleBusy=false,sampleAttempts=0,sampleWindow=0;
   const server=http.createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'");
     const send=(data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
@@ -42,6 +43,25 @@ export function createMirkamServer(service){
         const auth=staff(req,service),actor=auth.actor,suffix=route.slice(11);
         if(!permitted(auth.role,suffix))return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
         if(suffix==='session'&&method==='POST')return send({ok:true});
+        if(suffix==='voice-sample'&&method==='POST'){
+          if(auth.role!=='owner')return send({ok:false,error:'נדרשת הרשאת בעלת המערכת.'},403);
+          const choice=data.voice;
+          if(!['coral','marin','cedar'].includes(choice))return send({ok:false,error:'הקול אינו ברשימת הדגימות.'},400);
+          if(!voiceSamples.has(choice)){
+            if(sampleBusy)return send({ok:false,error:'דגימה בהכנה. המתינו רגע.'},409);
+            if(Date.now()-sampleWindow>600000){sampleWindow=Date.now();sampleAttempts=0;}
+            if(sampleAttempts>=6)return send({ok:false,error:'המתינו לפני יצירת דגימות נוספות.'},429);
+            sampleBusy=true;sampleAttempts++;
+            try{
+              const audio=await service.providers.speak('שלום, כאן ליין, העוזר שלכם. טוב שאתם כאן. שלום משה, מה שלומך היום? אפשר להקיש שלוחה בכל רגע.',{voice:choice});
+              if(!Buffer.isBuffer(audio)||!audio.length||audio.length>6*1024*1024)throw Error('לא התקבלה דגימת קול תקינה.');
+              voiceSamples.set(choice,audio.toString('base64'));
+            }finally{sampleBusy=false;}
+          }
+          const current=staff(req,service);if(current.role!=='owner'||current.actor!==actor)return send({ok:false,error:'נדרשת כניסה מחדש.'},403);
+          return send({ok:true,voice:choice,mime:'audio/wav',audio:voiceSamples.get(choice)});
+        }
+
         if(suffix==='line-chat'||suffix==='line-chat/new'){
           if(auth.role!=='owner')return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
           const all=()=>service.store.list('staff-line-chat',actor);

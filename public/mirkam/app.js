@@ -1,3 +1,4 @@
+let voiceSampleUrl;
 'use strict';
 const $=id=>document.getElementById(id);let token='',user=null,draft=null,conversation=null,message=null,busy=false,recorder=null,stream=null;
 const pane=$('pane');let adminSession='',adminRole='',sessionTimer,authEpoch=0;
@@ -5,7 +6,7 @@ window.mirkamStaffAuthenticated=false;
 let credentialPanel=null,credentialTimer,currentArea='home',selectedUserId=null;
 
 function clearCredentials(){clearTimeout(credentialTimer);if(credentialPanel)credentialPanel.replaceChildren();credentialPanel=null;}
-function lockManagement(){document.body?.classList.remove('module-home');closeDrawer();$('shell-bar').hidden=true;selectedUserId=null;currentArea='home';clearCredentials();$('status').textContent='';authEpoch++;clearTimeout(sessionTimer);adminSession='';adminRole='';token='';user=draft=conversation=message=null;window.mirkamStaffAuthenticated=false;document.body?.classList.add('locked');for(const id of ['suite-sidebar','app-header','app-footer','admin','workspace','login'])$(id).hidden=true;$('staff-gate').hidden=false;$('staff-password').value='';$('admin-token').value='';$('pin').value='';$('code').value='';$('admin-pane').replaceChildren();$('owner-result').replaceChildren();pane.replaceChildren();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
+function lockManagement(){if(voiceSampleUrl){URL.revokeObjectURL(voiceSampleUrl);voiceSampleUrl=null;}document.body?.classList.remove('module-home');closeDrawer();$('shell-bar').hidden=true;selectedUserId=null;currentArea='home';clearCredentials();$('status').textContent='';authEpoch++;clearTimeout(sessionTimer);adminSession='';adminRole='';token='';user=draft=conversation=message=null;window.mirkamStaffAuthenticated=false;document.body?.classList.add('locked');for(const id of ['suite-sidebar','app-header','app-footer','admin','workspace','login'])$(id).hidden=true;$('staff-gate').hidden=false;$('staff-password').value='';$('admin-token').value='';$('pin').value='';$('code').value='';$('admin-pane').replaceChildren();$('owner-result').replaceChildren();pane.replaceChildren();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
 function unlockManagement(role){adminRole=role;window.mirkamStaffAuthenticated=true;document.body?.classList.remove('locked');$('staff-gate').hidden=true;$('admin').hidden=false;$('suite-sidebar').hidden=true;$('app-footer').hidden=true;$('admin').open=true;const owner=role==='owner';for(const id of ['suite-line','suite-chats','suite-documents','suite-family','admin-destinations','admin-announcement'])$(id).hidden=!owner;$('admin-users').hidden=!['owner','support'].includes(role);$('admin-contacts').hidden=!['owner','support'].includes(role);$('admin-tickets').hidden=!['owner','support'].includes(role);renewManagementTimer();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
 function renewManagementTimer(){clearTimeout(sessionTimer);sessionTimer=setTimeout(()=>{lockManagement();$('status').textContent='ההתחברות הסתיימה לאחר חוסר פעילות. היכנסו שוב.';},3300000);}
 let lastSessionTouch=0,sessionTouchPending=false;
@@ -55,6 +56,9 @@ $('suite-home').onclick=()=>run(async()=>{requireManagement();managementHome();}
 $('suite-line').onclick=()=>run(async()=>{
  requireManagement();const r=await api('admin/line','GET',undefined,true);suiteActive('suite-line');
  const p=$('admin-pane');p.replaceChildren(node('h2','הקו הטלפוני והשלוחות'),node('p','זהו תפריט השירות שהלקוחות שומעים בטלפון. מסך הניהול אינו מחייב אותם להשתמש באפליקציה.'));
+ const samples=node('section');samples.append(node('h3','בחירת קול — האזנה בעברית'),node('p','כל דגימה נוצרת רק בלחיצה ומשתמשת ב־API בתשלום. האזנה חוזרת משתמשת בדגימה השמורה עד הפעלה מחדש של השרת. ההאזנה אינה משנה את קול הקו; בטלפון הצליל עשוי להשתנות.'));const player=node('audio');player.controls=true;samples.append(player);p.append(samples);
+ for(const voice of ['coral','marin','cedar'])button('הכנה והאזנה — '+voice,async()=>{const r=await api('admin/voice-sample','POST',{voice},true);if(voiceSampleUrl)URL.revokeObjectURL(voiceSampleUrl);voiceSampleUrl=URL.createObjectURL(new Blob([Uint8Array.from(atob(r.audio),c=>c.charCodeAt(0))],{type:r.mime}));player.src=voiceSampleUrl;try{await player.play();}catch{$('status').textContent='הדגימה מוכנה. לחצי על נגן השמע.';}},samples);
+
  button('דברי עם ליין',()=>showStaffLine(),p);
  for(const b of r.branches){const box=node('section');box.className='branch-card';box.append(node('h3','שלוחה '+b.digit+' — '+b.title));for(const child of b.children)box.append(node('p',child.digit+' · '+child.title));p.append(box);}
  p.append(node('p','הצגת התפריט אינה אישור לחיבור קו פעיל. יש לבדוק שיחה נכנסת, זיהוי, שמירה וחזרה לטיוטה מול ספק הטלפוניה.'));reveal(p);

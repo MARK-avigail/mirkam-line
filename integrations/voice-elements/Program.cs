@@ -105,7 +105,7 @@ internal static class Program
         var stage = "answer";
         var endReason = "loop-limit";
         var elapsed = Stopwatch.StartNew();
-        void Say(string text)
+        void Say(string text, bool interruptible = false)
         {
             // Split long answers to reduce peak WAV size and synthesis latency.
             while (text.Length > 0)
@@ -117,12 +117,12 @@ internal static class Program
                     var boundary = text.LastIndexOf(' ', length - 1, length);
                     if (boundary > 450) length = boundary;
                 }
-                SayPart(text.Substring(0, length));
+                if (SayPart(text.Substring(0, length)) && interruptible) return;
                 text = text.Substring(length).TrimStart();
                 if (disconnected) return;
             }
         }
-        void SayPart(string text)
+        bool SayPart(string text)
         {
             stage = "speech-generate";
             var wav = Post("/voice-elements/speech", Json(new { callId, text }));
@@ -136,12 +136,14 @@ internal static class Program
             if (!process.WaitForExit(10000)) { process.Kill(); throw new Exception("Audio conversion timed out"); }
             if (process.ExitCode != 0) throw new Exception("Audio conversion failed");
             stage = "speech-play";
-            try { voice.MaximumTime = 180; if (!disconnected) voice.Play(playable); }
+            try { voice.MaximumTime = 180; if (disconnected) return false; var result = voice.Play(playable).ToString(); voice.ClearDigitBuffer = false; return result == "Digit" || result == "MaximumDTMF"; }
             finally { File.Delete(raw); File.Delete(playable); }
         }
         try
         {
             channel.Answer();
+            voice.WipeDigitBuffer();
+            voice.ClearDigitBuffer = false;
             for (var hop = 0; hop < 600 && !disconnected && DateTime.UtcNow < deadline; hop++)
             {
                 stage = "workflow";
@@ -156,22 +158,26 @@ internal static class Program
                     if (disconnected || DateTime.UtcNow >= deadline) { endReason = disconnected ? "remote-disconnect" : "duration-limit"; return; }
                     switch (command.Name.LocalName)
                     {
-                        case "Say": voice.ClearDigitBuffer = true; Say(command.Value); break;
+                        case "Say": voice.ClearDigitBuffer = false; voice.TerminationDigits = ""; Say(command.Value); break;
                         case "Pause": Thread.Sleep(Math.Clamp((int?)command.Attribute("length") ?? 1, 1, 5) * 1000); break;
                         case "Hangup": endReason = "workflow-hangup"; return;
                         case "Redirect": path = Target(command.Value.Trim()); next = true; break;
                         case "Gather":
-                            voice.MaximumDigits = Math.Clamp((int?)command.Attribute("numDigits") ?? 1, 1, 6);
+                            var requestedDigits = Math.Clamp((int?)command.Attribute("numDigits") ?? 1, 1, 6);
                             var inputTimeout = Math.Clamp((int?)command.Attribute("timeout") ?? 12, 1, 60);
-                            voice.TerminationDigits = (string?)command.Attribute("finishOnKey") ?? "#";
-                            voice.ClearDigitBuffer = true;
-                            foreach (var say in command.Elements("Say")) { Say(say.Value); voice.ClearDigitBuffer = false; }
+                            if ((string?)command.Attribute("clearDigits") == "true") voice.WipeDigitBuffer();
                             voice.ClearDigitBuffer = false;
+                            voice.MaximumDigits = 1;
+                            voice.TerminationDigits = "ANY";
+                            foreach (var say in command.Elements("Say")) { Say(say.Value, true); }
+                            voice.ClearDigitBuffer = false;
+                            voice.MaximumDigits = requestedDigits;
+                            voice.TerminationDigits = (string?)command.Attribute("finishOnKey") ?? "#";
                             voice.MaximumTime = inputTimeout;
                             stage = "collect-digits";
                             voice.GetDigits();
                             var digits = voice.DigitBuffer;
-                            voice.ClearDigitBuffer = true;
+                            voice.ClearDigitBuffer = false;
                             if (!string.IsNullOrEmpty(digits)) { fields["Digits"] = digits; path = Target((string?)command.Attribute("action") ?? "/voice/step"); next = true; }
                             break;
                         case "Record":

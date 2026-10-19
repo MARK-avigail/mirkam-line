@@ -108,5 +108,20 @@ test('family review offers replay and re-recording without sending or carrying o
 });
 test('repeated login prompt is short and keeps six-digit authentication',async t=>{
  const {server}=fixture(t);const first=await step(server),again=await step(server);
- assert.match(first.text,/הקודים אינם מוקלטים/);assert.doesNotMatch(again.text,/תמלולים והקלטות/);assert.match(again.text,/numDigits="6"/);assert.match(again.text,/timeout="30"/);
+ assert.match(first.text,/טוב שאתם כאן/);assert.doesNotMatch(first.text,/תמלולים והקלטות/);assert.doesNotMatch(again.text,/תמלולים והקלטות/);assert.match(again.text,/numDigits="6"/);assert.match(again.text,/timeout="30"/);
+});
+test('owner can compare cached Hebrew samples; unauthenticated and unsupported choices cannot spend',async t=>{
+ const {server,service}=fixture(t);let calls=0;
+ service.providers.speak=async(text,options)=>{calls++;assert.match(text,/שלום משה/);assert.equal(options.voice,'marin');return wav();};
+ const url='/api/admin/voice-sample';assert.notEqual((await request(server,url,{method:'POST',body:{voice:'marin'}})).status,200);
+ assert.equal((await request(server,url,{method:'POST',token:admin,body:{voice:'invalid'}})).status,400);assert.equal(calls,0);
+ for(let n=0;n<2;n++){const r=await request(server,url,{method:'POST',token:admin,body:{voice:'marin',text:'must ignore'}});assert.equal(r.status,200);assert.deepEqual(Buffer.from(r.body.audio,'base64'),wav());}assert.equal(calls,1);
+ const member=service.staff.create('support','support','owner'),login=service.staff.login(member.id,member.password);
+ assert.equal((await request(server,url,{method:'POST',token:login.token,body:{voice:'coral'}})).status,403);assert.equal(calls,1);
+});
+test('successful login greets the authenticated user once inside the interruptible main menu',async t=>{
+ const {server,service,store}=fixture(t),u=enroll(service);await step(server);let c=store.get('call',id);
+ await step(server,{Digits:u.user.code},'?input='+c.inputNonce);c=store.get('call',id);await step(server,{Digits:u.pin},'?input='+c.inputNonce);
+ const first=await step(server);assert.match(first.text,/<Gather[^>]*><Say[^>]*>שלום שם, מה שלומך/);assert.match(first.text,/הקודים אינם מוקלטים/);
+ const next=await step(server);assert.doesNotMatch(next.text,/מה שלומך/);
 });
