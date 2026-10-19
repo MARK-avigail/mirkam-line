@@ -1,0 +1,23 @@
+name: Voice bridge build and streaming API
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'integrations/voice-elements/**'
+      - '.github/workflows/voice-bridge-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile production bridge
+        run: dotnet publish integrations/voice-elements/Bridge.csproj -c Release -o /tmp/mirkam-bridge
+      - name: Inspect public streaming API without credentials or calls
+        run: dotnet /tmp/mirkam-bridge/Bridge.dll --streaming-api

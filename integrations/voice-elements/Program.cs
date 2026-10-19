@@ -14,8 +14,27 @@ internal static class Program
     static readonly SemaphoreSlim Slots = new(2, 2);
     static readonly ManualResetEventSlim Stop = new(false);
     static string Required(string key) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } v ? v : throw new Exception("Missing setting: " + key);
-    static int Main()
+    static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--streaming-api")
+        {
+            // Reflection only: no provider connection, settings or credential reads.
+            var assembly = typeof(VoiceResource).Assembly;
+            Console.WriteLine("STREAMING_API_SDK=" + assembly.GetName().Version);
+            var count = 0;
+            foreach (var type in assembly.GetExportedTypes().OrderBy(t => t.FullName))
+            {
+                foreach (var member in type.GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly))
+                {
+                    var name = type.Name + "." + member.Name;
+                    if (!new[] { "Stream", "WebSocket", "Pipeline", "Nexus", "AudioData", "MediaData" }.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase))) continue;
+                    if (++count > 120) { Console.WriteLine("STREAMING_API_TRUNCATED"); return 0; }
+                    Console.WriteLine(type.FullName + " :: " + member.ToString());
+                }
+            }
+            Console.WriteLine("STREAMING_API_MEMBERS=" + count);
+            return 0;
+        }
         var stage = "environment";
         try
         {
