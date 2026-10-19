@@ -84,3 +84,16 @@ test('opening a new chat in the UI never calls DELETE',async()=>{
  await u.submit('staff-login-form');await u.click('suite-line');await u.all.find(n=>n.textContent==='דברי עם ליין').onclick();await u.all.find(n=>n.textContent==='שיחה חדשה').onclick();
  assert.ok(calls.some(([url,method])=>url==='/api/admin/line-chat/new'&&method==='POST'));assert.ok(!calls.some(([,method])=>method==='DELETE'));assert.match(u.text('admin-pane'),/השיחה הקודמת/);
 });
+test('role revoked while AI runs cannot publish owner-only answer',async t=>{
+ const {service,server,store}=fixture(t),owner=service.staff.createOwner('avigail','test','owner'),token=service.staff.login(owner.id,owner.password).token;
+ let release;service.providers.chat=()=>new Promise(resolve=>{release=resolve;});
+ const pending=request(server,'/api/admin/line-chat','POST',token,{text:'hello',revision:0});
+ while(!release)await new Promise(resolve=>setImmediate(resolve));
+ const s=store.get('staff',owner.id);store.put('staff',{...s,role:'support'});release('owner-only answer');
+ assert.equal((await pending).status,403);assert.equal(store.list('staff-line-chat').length,0);
+});
+test('audit persistence failure cannot commit an unacknowledged chat answer',async t=>{
+ const {service,server,store}=fixture(t);service.providers.chat=async()=> 'answer';
+ const original=store.audit.bind(store);store.audit=(actor,event,target)=>{if(event==='staff.line-chat')throw Error('disk failure');return original(actor,event,target);};
+ const r=await request(server,'/api/admin/line-chat','POST',master,{text:'hello',revision:0});assert.notEqual(r.status,200);assert.equal(store.list('staff-line-chat').length,0);
+});

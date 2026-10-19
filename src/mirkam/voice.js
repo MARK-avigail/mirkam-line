@@ -7,7 +7,11 @@ const say=s=>`<Say language="he-IL" voice="${escape(process.env.TWILIO_TTS_VOICE
 const redirect=()=>'<Redirect method="POST">/voice/step</Redirect>';
 const gatherXml=(text,digits=1)=>`<Gather numDigits="${digits}" finishOnKey="#" action="/voice/step" method="POST" timeout="8">${say(text)}</Gather>${redirect()}`;
 export function validVoiceSignature(url,body,signature,secret){if(!secret||typeof signature!=='string')return false;const text=url+Object.keys(body).sort().map(k=>k+body[k]).join(''),expected=createHmac('sha1',secret).update(text).digest('base64');const a=Buffer.from(expected),b=Buffer.from(signature);return a.length===b.length&&timingSafeEqual(a,b);}
-export function createVoice(service){
+export function createVoice(service,transport={}){
+  const transcribe=transport.transcribe||transcribeTwilio;
+  const retain=transport.retain||((user,providerId)=>service.recordAudio(user,{providerId}));
+  const track=transport.track||((user,providerId)=>service.trackTransientAudio(user,providerId));
+  const dispose=transport.dispose||((user,providerId,id)=>service.disposeTransientAudio(user,providerId,id));
   const jobs=new Map();
   const store=service.store;
   const reviewHash=(id,user)=>createHash('sha256').update(JSON.stringify([service.package(id,user),service.draft(id,user).attachments])).digest('hex');
@@ -34,8 +38,8 @@ export function createVoice(service){
     let encoded='';for await(const chunk of req){encoded+=chunk;if(encoded.length>32768){res.writeHead(413);return res.end();}}
     const data=Object.fromEntries(new URLSearchParams(encoded));
     const base=String(process.env.BASE_URL||'').replace(/\/$/,'');
-    if(!base.startsWith('https://')||!validVoiceSignature(base+req.url,data,req.headers['x-twilio-signature'],process.env.TWILIO_AUTH_TOKEN)){res.writeHead(403);return res.end();}
-    if(!/^CA[a-f0-9]{32}$/i.test(data.CallSid||'')){res.writeHead(400);return res.end();}
+    if(transport.authorize?!transport.authorize(req,data):(!base.startsWith('https://')||!validVoiceSignature(base+req.url,data,req.headers['x-twilio-signature'],process.env.TWILIO_AUTH_TOKEN))){res.writeHead(403);return res.end();}
+    if(!(transport.callPattern||/^CA[a-f0-9]{32}$/i).test(data.CallSid||'')){res.writeHead(400);return res.end();}
     let c=store.get('call',data.CallSid),out='';
     const nonce=new URL(req.url,'http://localhost').searchParams;
     const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
@@ -117,7 +121,7 @@ export function createVoice(service){
           else if(d.stage==='dialogue'){
             if(digit==='0'){service.skip(d.id,uid,d.revision);out=redirect();}
             else if(digit==='9'){c=job(c,'coach',async()=>{const result=await service.coach(d.id,uid,'',validate);return {phase:'draft',speech:result.helper};});out=redirect();}
-            else if(data.RecordingUrl){const recordingId=data.RecordingSid||data.RecordingUrl;if(c.lastRecording===recordingId)out=redirect();else{c=save({...c,lastRecording:recordingId});c=job(c,'transcribe',async()=>{service.recordAudio(uid,{providerId:recordingId});service.reserveAI(uid);const text=await transcribeTwilio(data.RecordingUrl);validate();await service.answerWithCoach(d.id,uid,text,d.revision,validate);return {phase:'draft'};});out=redirect();}}
+            else if(data.RecordingUrl){const recordingId=data.RecordingSid||data.RecordingUrl;if(c.lastRecording===recordingId)out=redirect();else{c=save({...c,lastRecording:recordingId});c=job(c,'transcribe',async()=>{retain(uid,recordingId);service.reserveAI(uid);const text=await transcribe(data.RecordingUrl);validate();await service.answerWithCoach(d.id,uid,text,d.revision,validate);return {phase:'draft'};});out=redirect();}}
             else {c={...c,inputNonce:randomUUID(),recordNonce:randomUUID()};out=`<Gather numDigits="1" action="/voice/step?input=${c.inputNonce}" timeout="4">${say((c.speech||'')+d.question+' לעזרה 9, לדילוג על שדה רשות 0, לשמירה ויציאה 7. להקלטה המתינו לצליל. סולמית מסיימת.')}</Gather><Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="180" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;}
           }else if(d.stage==='answer-review'){
             if(['1','2'].includes(digit)){service.confirmAnswer(d.id,uid,digit==='1',d.revision);out=redirect();}
@@ -133,7 +137,7 @@ export function createVoice(service){
             else{c=save({...c,presentedReview:index});out=gather(parts[index]+(index===parts.length-1?' הסתיימה ההקראה. לאישור החבילה ובחירת ערוץ הקישו 1.':' להמשך הקישו 1.')+' לחזרה על הקטע הקישו 3.');}
           }else out=say('המסמך שמור. מצב המשלוח ייבדק במשרד.')+gather('לחזרה הקישו 8.');
         }else if(c.phase==='draft-clarify'){
-          if(data.RecordingUrl){const d=service.draft(c.draftId,uid);c=job(c,'clarify',async()=>{service.recordAudio(uid,{providerId:data.RecordingSid||data.RecordingUrl});service.reserveAI(uid);const text=await transcribeTwilio(data.RecordingUrl);validate();await service.clarify(d.id,uid,text,d.revision,validate);return {phase:'draft'};});out=redirect();}
+          if(data.RecordingUrl){const d=service.draft(c.draftId,uid);c=job(c,'clarify',async()=>{retain(uid,data.RecordingSid||data.RecordingUrl);service.reserveAI(uid);const text=await transcribe(data.RecordingUrl);validate();await service.clarify(d.id,uid,text,d.revision,validate);return {phase:'draft'};});out=redirect();}
           else{c=save({...c,phase:'draft'});out=redirect();}
         }else if(c.phase==='delivery-channel'){
           const channel={1:'email',2:'fax',3:'both'}[digit];if(channel){const d=service.draft(c.draftId,uid),offered=service.offer(d.id,uid,d.court.id,channel,d.revision);c=save({...c,phase:'delivery-confirm',nonce:offered.approval.nonce});out=redirect();}else out=gather('לשליחה במייל הקישו 1. בפקס 2. בשניהם 3.');
@@ -142,7 +146,7 @@ export function createVoice(service){
           if(digit==='1'&&c.deliveryPresented===c.nonce){const approved=service.approve(d.id,uid,c.nonce,true,d.revision);c=job(c,'delivery',async()=>{const result=await service.send(d.id,uid,approved.revision);return {phase:'main',speech:'מצב המשלוח: '+result.status};});out=redirect();}
           else{c=save({...c,deliveryPresented:c.nonce});out=gather(`החבילה תישלח אל ${target.name}. ערוץ: ${d.approval.channel}. מייל ${target.email.split('').join(' ')}. פקס ${target.fax}. לאישור ושליחה הקישו 1. לחזרה בלי שליחה 8.`);}
         }else if(['chat','family-compose','ticket'].includes(c.phase)){
-          if(data.RecordingUrl){const phase=c.phase;c=job(c,'transcribe',async()=>{const providerId=data.RecordingSid||data.RecordingUrl,audio=service.trackTransientAudio(uid,providerId);let text;try{service.reserveAI(uid);text=await transcribeTwilio(data.RecordingUrl);}finally{await service.disposeTransientAudio(uid,providerId,audio.id);}validate();
+          if(data.RecordingUrl){const phase=c.phase;c=job(c,'transcribe',async()=>{const providerId=data.RecordingSid||data.RecordingUrl,audio=track(uid,providerId);let text;try{service.reserveAI(uid);text=await transcribe(data.RecordingUrl);}finally{await dispose(uid,providerId,audio.id);}validate();
             if(phase==='chat'){const conv=store.owned('conversation',c.conversationId,uid),r=await service.chat(conv.id,uid,text,conv.revision,validate);return {phase:'chat',speech:r.messages.at(-1).text};}
             if(phase==='ticket'){service.ticket(uid,text);return {phase:'main',speech:'הפנייה נשמרה למשרד.'};}
             const message=service.compose(uid,c.contactId,text);return {phase:'family-review',messageId:message.id};});out=redirect();}

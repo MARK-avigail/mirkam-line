@@ -1,5 +1,6 @@
 import { renderPdf,renderDocx } from '../documents.js';
 import { transcribeAudio } from '../ivr/stt.js';
+import { requestBytes } from '../providers.js';
 
 export function providerError(status,code){
   if(status===429)return code==='insufficient_quota'?'אין יתרת שימוש זמינה אצל ספק ה־AI. בדקו חיוב ומכסה לפני ניסיון נוסף.':'ספק ה־AI מגביל כרגע את קצב הבקשות. המתינו לפני ניסיון נוסף.';
@@ -39,6 +40,11 @@ export function liveProviders(){
     coach:async context=>ai([{role:'system',content:RULES+' התמקד בשאלה topic בלבד. החזר JSON עם text (תגובה/הסבר/הבהרה קצרה) ו־draft (נוסח ערוך של currentAnswer בלבד, או מחרוזת ריקה). הצעה חייבת אישור. אל תוסיף עובדות בניסוח.'},{role:'user',content:JSON.stringify(context)}],true),
     chat:async messages=>ai([{role:'system',content:RULES+' בשיחה חופשית אפשר לעזור בכל נושא, לא רק בנושאים משפטיים. התאם את התשובה לבקשה ולהקשר.'},...messages.map(m=>({role:m.role,content:m.text}))]),
     transcribe:transcribeAudio,
+    speak:async text=>{
+      if(!process.env.OPENAI_API_KEY)throw Error('שירות הקול לא הוגדר.');
+      if(typeof text!=='string'||!text.trim()||text.length>4000)throw Error('טקסט להקראה אינו תקין.');
+      return requestBytes('https://api.openai.com/v1/audio/speech',{method:'POST',headers:{Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({model:'tts-1',voice:'alloy',input:text,response_format:'wav'})},6*1024*1024);
+    },
     ...(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN?{deleteAudio:async id=>{if(!/^RE[a-f0-9]{32}$/i.test(id))throw Error('מזהה ההקלטה למחיקה אינו תקין.');const sid=process.env.TWILIO_ACCOUNT_SID;const r=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Recordings/${id}.json`,{method:'DELETE',headers:{Authorization:'Basic '+Buffer.from(sid+':'+process.env.TWILIO_AUTH_TOKEN).toString('base64')},redirect:'error',signal:AbortSignal.timeout(20000)});if(![204,404].includes(r.status))throw Error('מחיקת ספק לא אושרה.');}}:{}),
     deliver:async({idempotencyKey,target,documents,attachments})=>{
       const files=[];for(const d of documents){files.push({filename:d.kind+'.pdf',content:await renderPdf(d.text,{test:true})});files.push({filename:d.kind+'.docx',content:renderDocx(d.text,{test:true})});}
