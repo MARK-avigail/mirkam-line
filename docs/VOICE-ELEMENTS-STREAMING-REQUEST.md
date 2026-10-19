@@ -19,3 +19,5 @@ Please provide the supported Linux integration sample and answer:
 We need to retain our existing authentication and explicit approval before sending documents/messages. The AI service must not bypass those controls. A generic legacy OpenAI Realtime example alone will not establish compatibility with GPT-Live.
 
 Please send a runnable minimal example without embedding credentials. We can supply account identification through your authenticated support channel.
+
+Preferred alternative to investigate: can our existing inbound number be routed through your SIP trunk product directly to OpenAI GPT-Live, with TLS signaling and SRTP media? Please confirm eligibility of the current trial account, whether the same number can be retained, required codecs, configuration steps and any additional charges. We have not authorized activation or number migration.
