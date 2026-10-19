@@ -160,5 +160,10 @@
 
 ## תיקון הקשות ואבחון הניתוק — המשך 19 באוקטובר
 בגשר תוקנה בדיקת קוד סיום ההשמעה: TerminationCode הוא flags ולא ערך טקסט יחיד. שילוב Digit עם EndOfData או MaximumDTMF כבר אינו מחמיץ את עצירת ההקראה. Gather עם כמה Say נעצר אחרי הראשון שהופסק בהקשה. נוסף InterDigitTimeout מפורש של עד 30 שניות בהזנת שש ספרות, בהתאם לזמן הכולל; שינוי MaximumTime לבדו לא קבע את זמן ההמתנה בין ספרות.
-נוספה בדיקת C# ללא ספק (13 מקרים) לבנייה ב־CI. בניית הגרסה החדשה עדיין בהמתנה. נוסף אבחון קריאה בלבד של DropTime ושל GeneralCause/GcCause/DropError, ללא מספרי טלפון, קודים אישיים או הודעות SDK. האבחון נדרש כדי לברר ניתוק ב־303 שניות; אין עדיין סיבה מאומתת ואין שינוי במגבלות החשבון של הספק.
+נוספה בדיקת C# ללא ספק (13 מקרים) לבנייה ב־CI. בניית הגרסה החדשה אומתה בהמשך ב־CI; ראו עדכון האימות להלן. נוסף אבחון קריאה בלבד של DropTime ושל GeneralCause/GcCause/DropError, ללא מספרי טלפון, קודים אישיים או הודעות SDK. האבחון נדרש כדי לברר ניתוק ב־303 שניות; אין עדיין סיבה מאומתת ואין שינוי במגבלות החשבון של הספק.
 מקורות: https://help.voiceelements.com/html/T_VoiceElements_Common_TerminationCode.htm ; https://help.voiceelements.com/html/T_VoiceElements_Client_VoiceResource.htm ; https://help.voiceelements.com/html/P_VoiceElements_Client_ChannelResource_DropTime.htm
+
+### אימות הבנייה של תיקוני ההקשות
+GitHub Actions 39281952533 הסתיים בהצלחה עבור commit 8454be251c3e0f49b23b74e8b6fcba7bbaea5d03: גשר .NET 8 נבנה מול SDK 9.8.3; בדיקת מדיניות ההקשות וההמתנה (13 מקרים) עברה; בדיקות reflection ותלות ההזרמה ב־Linux עברו. זו תוצאת הידור ובדיקות ללא חשבון או שיחה, לא אימות התקנה בשרת או פתרון לניתוק ב־303 שניות.
+https://github.com/MARK-avigail/mirkam-line/actions/runs/39281952533
+בקשת רשת נוספת לסביבת העבודה נשארה ממתינה ונקטעה בידי המשתמשת. אין צורך לחזור עליה לשם הידור: ה־CI כבר סיפק תוצאה. אין גישת SSH מאומתת בסביבת העבודה, ולכן הפריסה טרם בוצעה כאן.
