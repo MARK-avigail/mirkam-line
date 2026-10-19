@@ -16,6 +16,7 @@ internal static class Program
     static string Required(string key) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } v ? v : throw new Exception("Missing setting: " + key);
     static int Main()
     {
+        var stage = "environment";
         try
         {
             var origin = new Uri(Required("MIRKAM_BRIDGE_BASE_URL"));
@@ -25,12 +26,16 @@ internal static class Program
             var secret = Required("VOICE_ELEMENTS_BRIDGE_TOKEN");
             if (secret.Length < 32) throw new Exception("Bridge token is too short");
             Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+            stage = "backend-readiness";
             using var readiness = JsonDocument.Parse(Post("/voice-elements/ready", Json(new { })));
             if (readiness.RootElement.GetProperty("protocol").GetInt32() != 1) throw new Exception("Unsupported bridge backend");
             // Read the downloaded customer settings at runtime. Never bake it into the image.
+            stage = "provider-settings";
             using var config = JsonDocument.Parse(File.ReadAllText(Required("VOICE_ELEMENTS_SETTINGS_FILE")));
             var settings = config.RootElement.GetProperty("ApplicationSettings").GetProperty("VoiceElementsTest");
+            stage = "provider-connect";
             using var server = new TelephonyServer(settings.GetProperty("PhoneServer").GetString(), settings.GetProperty("Username").GetString(), settings.GetProperty("Password").GetString());
+            stage = "provider-initialize";
             server.CacheMode = VoiceElements.Interface.CacheMode.ClientSession;
             server.ConnectionLost += (_, _) => Console.WriteLine("VOICE_CONNECTION_LOST");
             server.ConnectionRestored += (_, _) => Console.WriteLine("VOICE_CONNECTION_RESTORED");
@@ -41,13 +46,28 @@ internal static class Program
                 catch { Console.WriteLine("CALL_FAILED: inspect bridge/application health; no caller data logged"); }
                 finally { try { e.ChannelResource.Disconnect(); } catch { } try { e.ChannelResource.Dispose(); } catch { } Slots.Release(); }
             };
+            stage = "provider-register";
             server.RegisterDNIS();
             Console.CancelKeyPress += (_, e) => { e.Cancel = true; Stop.Set(); };
             Console.WriteLine("VOICE_REGISTERED: ready for an inbound acceptance test; not proof of a completed call");
             Stop.Wait();
             return 0;
         }
-        catch { Console.Error.WriteLine("BRIDGE_START_FAILED: check private configuration, SDK and provider connectivity"); return 1; }
+        catch (Exception error)
+        {
+            // Never log Message, ToString, paths, URLs or configuration values: SDK errors may contain credentials.
+            Console.Error.WriteLine($"BRIDGE_START_FAILED stage={stage}");
+            Exception? current = error;
+            for (var depth = 0; current != null && depth < 5; depth++, current = current.InnerException)
+            {
+                Console.Error.WriteLine($"CAUSE depth={depth} type={current.GetType().FullName} hresult=0x{current.HResult:X8}");
+                if (current is HttpRequestException http && http.StatusCode is { } status)
+                    Console.Error.WriteLine($"HTTP_STATUS={(int)status}");
+                if (current is System.Net.Sockets.SocketException socket)
+                    Console.Error.WriteLine($"SOCKET_ERROR={socket.SocketErrorCode}");
+            }
+            return 1;
+        }
     }
     static string Target(string input)
     {
