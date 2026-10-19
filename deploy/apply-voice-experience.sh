@@ -47,7 +47,7 @@ saved=1
 bash deploy/apply-management-release.sh
 bash deploy/start-voice-elements.sh
 # Registration is asynchronous. Treat a failed/exited bridge as a failed release.
-for attempt in {1..45}; do
+for attempt in {1..75}; do
  logs=$(docker logs --tail 15 mirkam-voice-elements 2>&1)
  if [[ "$logs" == *BRIDGE_START_FAILED* ]]; then exit 1; fi
  if [[ "$logs" == *VOICE_REGISTERED* ]]; then
