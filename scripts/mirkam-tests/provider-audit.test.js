@@ -30,3 +30,9 @@ test('provider error and oversized headers cancel unread response streams',async
  globalThis.fetch=async()=>new Response(new ReadableStream({cancel(){cancelled++;}}),{headers:{'content-length':'999'}});
  await assert.rejects(requestBytes('https://example.test',{},10));assert.equal(cancelled,2);
 });
+
+test('telephone uses marin by default and preserves explicit voice selections',async t=>{
+ const voices=[];setup(t,async(url,options)=>{voices.push(JSON.parse(options.body).voice);return new Response(Buffer.from('test-wave'));});delete process.env.MIRKAM_TTS_VOICE;
+ const provider=liveProviders();await provider.speak('שלום');process.env.MIRKAM_TTS_VOICE='coral';await provider.speak('שלום');await provider.speak('שלום',{voice:'shimmer'});
+ assert.deepEqual(voices,['marin','coral','shimmer']);
+});
