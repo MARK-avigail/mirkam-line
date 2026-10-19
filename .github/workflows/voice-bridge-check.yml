@@ -28,7 +28,7 @@ jobs:
           for sdk in /tmp/mirkam-bridge/*VoiceElements*.dll; do
             /tmp/inspect-tools/ilspycmd -l c "$sdk" | grep -Ei 'media|stream|bot|websocket|processor' || true
           done
-          /tmp/inspect-tools/ilspycmd -t VoiceElements.Client.VoiceResource /tmp/mirkam-bridge/VoiceElements.Client.dll > /tmp/voice-resource.cs
+          /tmp/inspect-tools/ilspycmd -t VoiceElements.Client.VoiceResource /tmp/mirkam-bridge/VoiceElementsClient.dll > /tmp/voice-resource.cs
           python3 - <<'PY'
           import re
           source = open('/tmp/voice-resource.cs').read().splitlines()
@@ -39,3 +39,6 @@ jobs:
           for i in sorted(selected):
               print(f'{i+1}: {source[i]}')
           PY
+          for type in StreamingApplication StreamingServer MediaProcessor StreamEventArgs; do
+            /tmp/inspect-tools/ilspycmd -t "VoiceElements.Client.Streams.$type" /tmp/mirkam-bridge/VoiceElementsClientStreams.dll
+          done
