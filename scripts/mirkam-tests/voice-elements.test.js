@@ -112,7 +112,7 @@ test('repeated login prompt is short and keeps six-digit authentication',async t
 });
 test('owner can compare cached Hebrew samples; unauthenticated and unsupported choices cannot spend',async t=>{
  const {server,service}=fixture(t);let calls=0;
- service.providers.speak=async(text,options)=>{calls++;assert.match(text,/שלום משה/);assert.equal(options.voice,'marin');return wav();};
+ service.providers.speak=async(text,options)=>{calls++;assert.match(text,/טוב שהתקשרת/);assert.doesNotMatch(text,/שלוחה|הקראה|משה/);assert.equal(options.voice,'marin');return wav();};
  const url='/api/admin/voice-sample';assert.notEqual((await request(server,url,{method:'POST',body:{voice:'marin'}})).status,200);
  assert.equal((await request(server,url,{method:'POST',token:admin,body:{voice:'invalid'}})).status,400);assert.equal(calls,0);
  for(let n=0;n<2;n++){const r=await request(server,url,{method:'POST',token:admin,body:{voice:'marin',text:'must ignore'}});assert.equal(r.status,200);assert.deepEqual(Buffer.from(r.body.audio,'base64'),wav());}assert.equal(calls,1);

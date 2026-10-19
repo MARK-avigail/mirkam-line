@@ -46,14 +46,14 @@ export function createMirkamServer(service){
         if(suffix==='voice-sample'&&method==='POST'){
           if(auth.role!=='owner')return send({ok:false,error:'נדרשת הרשאת בעלת המערכת.'},403);
           const choice=data.voice;
-          if(!['coral','marin','cedar'].includes(choice))return send({ok:false,error:'הקול אינו ברשימת הדגימות.'},400);
+          if(!['coral','marin','shimmer'].includes(choice))return send({ok:false,error:'הקול אינו ברשימת הדגימות.'},400);
           if(!voiceSamples.has(choice)){
             if(sampleBusy)return send({ok:false,error:'דגימה בהכנה. המתינו רגע.'},409);
             if(Date.now()-sampleWindow>600000){sampleWindow=Date.now();sampleAttempts=0;}
             if(sampleAttempts>=6)return send({ok:false,error:'המתינו לפני יצירת דגימות נוספות.'},429);
             sampleBusy=true;sampleAttempts++;
             try{
-              const audio=await service.providers.speak('שלום, כאן ליין, העוזר שלכם. טוב שאתם כאן. שלום משה, מה שלומך היום? אפשר להקיש שלוחה בכל רגע.',{voice:choice});
+              const audio=await service.providers.speak('שלום, טוב שהתקשרת. אני כאן איתך. אפשר לקחת רגע, ולספר לי מה חשוב לך היום.',{voice:choice});
               if(!Buffer.isBuffer(audio)||!audio.length||audio.length>6*1024*1024)throw Error('לא התקבלה דגימת קול תקינה.');
               voiceSamples.set(choice,audio.toString('base64'));
             }finally{sampleBusy=false;}
