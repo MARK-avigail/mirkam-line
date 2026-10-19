@@ -7,17 +7,18 @@ export async function requestBytes(url, options = {}, limit = 24 * 1024 * 1024) 
   const timeout = Math.min(60000, Math.max(1000, Number(process.env.PROVIDER_TIMEOUT_MS) || 20000));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  let response, reader, complete=false;
   try {
-    const response = await fetch(url, { ...options, redirect: 'error', signal: controller.signal });
+    response = await fetch(url, { ...options, redirect: 'error', signal: controller.signal });
     if (!response.ok) throw new Error('שירות חיצוני החזיר שגיאה (' + response.status + ').');
     if (Number(response.headers.get('content-length')) > limit) throw new Error('תשובת השירות גדולה מדי.');
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
     const chunks = []; let size = 0;
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) { complete=true; break; }
       size += value.byteLength;
-      if (size > limit) { await reader.cancel(); throw new Error('תשובת השירות גדולה מדי.'); }
+      if (size > limit) throw new Error('תשובת השירות גדולה מדי.');
       chunks.push(Buffer.from(value));
     }
     return Buffer.concat(chunks);
@@ -25,7 +26,10 @@ export async function requestBytes(url, options = {}, limit = 24 * 1024 * 1024) 
     if (e.name === 'AbortError') throw new Error('השירות לא ענה בזמן. לא נשמרה תשובה חדשה.');
     if (e.message?.startsWith('שירות') || e.message?.startsWith('תשובת')) throw e;
     throw new Error('לא ניתן להתחבר לשירות החיצוני.');
-  } finally { clearTimeout(timer); }
+  } finally {
+    if(!complete){try{if(reader)await reader.cancel();else await response?.body?.cancel();}catch{}}
+    reader?.releaseLock();clearTimeout(timer);
+  }
 }
 export async function openaiJSON(endpoint, body) {
   const key = requireKey();

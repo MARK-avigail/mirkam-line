@@ -11,6 +11,8 @@ internal static class Program
 {
     static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = false })
     { Timeout = TimeSpan.FromSeconds(35), MaxResponseContentBufferSize = 6 * 1024 * 1024 };
+    static string? RecoveryAudio;
+    sealed class SpeechUnavailableException : Exception { }
     static readonly SemaphoreSlim Slots = new(2, 2);
     static readonly ManualResetEventSlim Stop = new(false);
     static string Required(string key) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } v ? v : throw new Exception("Missing setting: " + key);
@@ -86,6 +88,16 @@ internal static class Program
                 catch { Console.WriteLine("CALL_FAILED: inspect bridge/application health; no caller data logged"); }
                 finally { try { e.ChannelResource.Disconnect(); } catch { } try { e.ChannelResource.Dispose(); } catch { } Slots.Release(); }
             };
+            // Prepare one generic recovery clip, without accounts or caller data.
+            // Failure is non-fatal; no claim that the fallback is available then.
+            try
+            {
+                var recoveryFolder = Path.Combine(Path.GetTempPath(), "mirkam-recovery-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(recoveryFolder);
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(recoveryFolder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                RecoveryAudio = ConvertSpeech(Post("/voice-elements/recovery", Json(new { })), recoveryFolder, "recovery");
+            }
+            catch { Console.WriteLine("RECOVERY_AUDIO_UNAVAILABLE: speech errors may still end calls"); }
             stage = "provider-register";
             server.RegisterDNIS();
             Console.CancelKeyPress += (_, e) => { e.Cancel = true; Stop.Set(); };
@@ -129,6 +141,22 @@ internal static class Program
         { response.EnsureSuccessStatusCode(); return response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult(); }
     }
     static HttpContent Json(object value) => new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json");
+    static string ConvertSpeech(byte[] wav, string folder, string name)
+    {
+        var raw = Path.Combine(folder, name + "-input.wav");
+        var playable = Path.Combine(folder, name + ".wav");
+        try
+        {
+            File.WriteAllBytes(raw, wav);
+            var start = new ProcessStartInfo("ffmpeg") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
+            foreach (var arg in new[] { "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", raw, "-ar", "8000", "-ac", "1", "-c:a", "pcm_s16le", playable }) start.ArgumentList.Add(arg);
+            using var process = Process.Start(start) ?? throw new Exception("Audio converter unavailable");
+            if (!process.WaitForExit(10000)) { process.Kill(); throw new Exception("Audio conversion timed out"); }
+            if (process.ExitCode != 0) throw new Exception("Audio conversion failed");
+            return playable;
+        }
+        finally { File.Delete(raw); }
+    }
     static void Handle(ChannelResource channel)
     {
         var callId = "VE" + Guid.NewGuid().ToString("N");
@@ -142,6 +170,8 @@ internal static class Program
         var path = "/voice-elements/step";
         var fields = new Dictionary<string, string> { ["CallSid"] = callId };
         var sequence = 0;
+        var speechRecoveries = 0;
+        var maxSpeechMs = 0;
         var scheduledDropSeconds = -1;
         var stage = "answer";
         var endReason = "loop-limit";
@@ -167,19 +197,17 @@ internal static class Program
         bool SayPart(string text)
         {
             stage = "speech-generate";
-            var wav = Post("/voice-elements/speech", Json(new { callId, text }));
-            var raw = Path.Combine(folder, "tts-input.wav");
-            var playable = Path.Combine(folder, "tts-" + (++sequence) + ".wav");
-            File.WriteAllBytes(raw, wav);
-            var start = new ProcessStartInfo("ffmpeg") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
-            foreach (var arg in new[] { "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", raw, "-ar", "8000", "-ac", "1", "-c:a", "pcm_s16le", playable }) start.ArgumentList.Add(arg);
+            byte[] wav;
+            var synthesisWatch = Stopwatch.StartNew();
+            try { wav = Post("/voice-elements/speech", Json(new { callId, text })); }
+            catch (HttpRequestException error) { Console.Error.WriteLine($"CALL_SPEECH_HTTP_STATUS={(int?)error.StatusCode}"); throw new SpeechUnavailableException(); }
+            catch (TaskCanceledException) { throw new SpeechUnavailableException(); }
+            finally { maxSpeechMs = Math.Max(maxSpeechMs, (int)synthesisWatch.ElapsedMilliseconds); }
             stage = "speech-convert";
-            using var process = Process.Start(start) ?? throw new Exception("Audio converter unavailable");
-            if (!process.WaitForExit(10000)) { process.Kill(); throw new Exception("Audio conversion timed out"); }
-            if (process.ExitCode != 0) throw new Exception("Audio conversion failed");
+            var playable = ConvertSpeech(wav, folder, "tts-" + (++sequence));
             stage = "speech-play";
             try { voice.MaximumTime = 180; if (disconnected) return false; var result = voice.Play(playable); voice.ClearDigitBuffer = false; return VoiceInputPolicy.IsDigitInterruption(result); }
-            finally { File.Delete(raw); File.Delete(playable); }
+            finally { File.Delete(playable); }
         }
         try
         {
@@ -203,6 +231,8 @@ internal static class Program
                 var root = XDocument.Load(reader).Root ?? throw new Exception("Empty voice response");
                 if (root.Name != "Response") throw new Exception("Invalid voice response");
                 var next = false;
+                try
+                {
                 foreach (var command in root.Elements())
                 {
                     if (disconnected || DateTime.UtcNow >= deadline) { endReason = disconnected ? "remote-disconnect" : "duration-limit"; return; }
@@ -260,6 +290,22 @@ internal static class Program
                     }
                     if (next) break;
                 }
+                }
+                catch (SpeechUnavailableException)
+                {
+                    if (disconnected || DateTime.UtcNow >= deadline || RecoveryAudio == null || ++speechRecoveries > 2) throw;
+                    Console.WriteLine("CALL_SPEECH_RECOVERY: returning to workflow without replaying input or sending");
+                    voice.ClearDigitBuffer = true;
+                    voice.TerminationDigits = "";
+                    voice.MaximumTime = 30;
+                    voice.Play(RecoveryAudio);
+                    voice.WipeDigitBuffer();
+                    voice.ClearDigitBuffer = false;
+                    Post("/voice-elements/speech-recover", Json(new { callId }));
+                    path = "/voice-elements/step";
+                    fields = new Dictionary<string, string> { ["CallSid"] = callId };
+                    next = true;
+                }
                 if (!next) { endReason = "no-next-instruction"; return; }
             }
         }
@@ -280,7 +326,7 @@ internal static class Program
             var durationSeconds = (int)elapsed.Elapsed.TotalSeconds;
             Console.WriteLine($"CALL_DISCONNECT general_cause={generalCause} gc_cause={gcCause} drop_error={dropError}");
             Console.WriteLine($"CALL_END reason={reason} stage={stage} seconds={durationSeconds}");
-            try { Post("/voice-elements/end", Json(new { callId, diagnostics = new { durationSeconds, reason, stage, generalCause, gcCause, dropError, scheduledDropSeconds } })); } catch { Console.WriteLine("CALL_END_CALLBACK_FAILED"); }
+            try { Post("/voice-elements/end", Json(new { callId, diagnostics = new { durationSeconds, reason, stage, generalCause, gcCause, dropError, scheduledDropSeconds, maxSpeechMs } })); } catch { Console.WriteLine("CALL_END_CALLBACK_FAILED"); }
             Directory.Delete(folder, true);
         }
     }

@@ -17,3 +17,16 @@ test('Hebrew transcription uses updated default and context without rewriting re
  setup(t,async(url,options)=>{assert.equal(options.body.get('model'),'gpt-4o-transcribe');assert.match(options.body.get('prompt'),/כלא/);return new Response(JSON.stringify({text:'הכל בסדר'}));});
  assert.equal(await transcribeAudio(Buffer.from('audio'),'audio/wav'),'הכל בסדר');
 });
+
+test('telephone answers request concise speech while written answers retain their budget',async t=>{
+ const bodies=[];setup(t,async(url,options)=>{bodies.push(JSON.parse(options.body));return new Response(JSON.stringify({choices:[{message:{content:'תשובה לבדיקה'}}]}));});
+ const providers=liveProviders();await providers.chat([{role:'user',text:'שלום'}],{channel:'telephone'});await providers.chat([{role:'user',text:'שלום'}]);
+ assert.equal(bodies[0].max_tokens,450);assert.match(bodies[0].messages[0].content,/שיחת טלפון/);assert.equal(bodies[1].max_tokens,1200);
+});
+test('provider error and oversized headers cancel unread response streams',async t=>{
+ const {requestBytes}=await import('../../src/providers.js');let cancelled=0;
+ setup(t,async()=>new Response(new ReadableStream({cancel(){cancelled++;}}),{status:503}));
+ await assert.rejects(requestBytes('https://example.test'));assert.equal(cancelled,1);
+ globalThis.fetch=async()=>new Response(new ReadableStream({cancel(){cancelled++;}}),{headers:{'content-length':'999'}});
+ await assert.rejects(requestBytes('https://example.test',{},10));assert.equal(cancelled,2);
+});

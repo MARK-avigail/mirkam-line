@@ -1,6 +1,7 @@
 import {timingSafeEqual,randomUUID} from 'node:crypto';
 import {createVoice} from './voice.js';
 import {callDiagnostics} from './call-health.js';
+import {fixedSpeechCache,RECOVERY_PROMPT} from './speech-cache.js';
 
 const callPattern=/^VE[a-f0-9]{32}$/;
 const MAX_AUDIO=6*1024*1024;
@@ -39,7 +40,18 @@ export function createVoiceElements(service){
     track:(user,id)=>{const r=recording(id);if(r.owner!==user)throw Error('Recording owner mismatch');return service.trackTransientAudio(user,'local');},
     dispose:async(user,id,recordId)=>{try{return await service.disposeTransientAudio(user,'local',recordId);}finally{store.remove('bridge-audio',id);}}
   });
+  const speechCache=fixedSpeechCache();
   let speechBusy=0,speechWindow=0,speechCount=0;
+  const synthesize=text=>speechCache.get(text,async()=>{
+          if(Date.now()-speechWindow>60000){speechWindow=Date.now();speechCount=0;}
+          if(speechBusy>=2||speechCount>=60)throw Object.assign(Error('Speech limit reached'),{status:429});
+          speechBusy++;speechCount++;
+          try{
+            if(!service.providers.speak)throw Error('Speech provider not configured');
+            return await service.providers.speak(text);
+          }finally{speechBusy--;}
+        });
+
   const handler=async(req,res)=>{
     const json=(data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
     if(!authorized(req))return json({ok:false,error:'Unauthorized bridge'},403);
@@ -47,6 +59,20 @@ export function createVoiceElements(service){
       const url=new URL(req.url,'http://localhost');
       if(req.method!=='POST')return json({ok:false},405);
       if(url.pathname==='/voice-elements/ready')return json({ok:true,protocol:1,liveVerified:false});
+      if(url.pathname==='/voice-elements/recovery'){
+        await bytes(req,1000);
+        const audio=await synthesize(RECOVERY_PROMPT);
+        if(!Buffer.isBuffer(audio)||!audio.length||audio.length>MAX_AUDIO)throw Error('Invalid recovery audio');
+        res.writeHead(200,{'Content-Type':'audio/wav','Cache-Control':'no-store'});return res.end(audio);
+      }
+      if(url.pathname==='/voice-elements/speech-recover'){
+        const data=JSON.parse((await bytes(req,1000)).toString('utf8'));
+        const c=callPattern.test(data.callId||'')&&store.get('call',data.callId);
+        if(!c||c.phase==='ended')throw Error('Call is no longer active');
+        let token=c.token;try{if(token)service.identity.authenticate(token);}catch{token=null;}
+        store.put('call',{...c,phase:token?'main':'login-code',token,code:null,inputNonce:null,recordNonce:null,jobId:null,speech:null,error:null,silence:0,messagePresented:null,deliveryPresented:null,speechRecoveries:(c.speechRecoveries||0)+1});
+        return json({ok:true});
+      }
       if(url.pathname==='/voice-elements/step'){
         req.url='/voice/step'+url.search;
         return await voice(req,res);
@@ -78,22 +104,18 @@ export function createVoiceElements(service){
         const c=callPattern.test(data.callId||'')&&store.get('call',data.callId);
         if(!c||c.phase==='ended'||typeof data.text!=='string'||!data.text.trim()||data.text.length>4000)throw Error('Invalid speech request');
         if(c.token)service.identity.authenticate(c.token);
-        if(Date.now()-speechWindow>60000){speechWindow=Date.now();speechCount=0;}
-        if(speechBusy>=2||speechCount>=60)return json({ok:false,error:'Speech limit reached'},429);
-        speechBusy++;speechCount++;
-        try{
-          if(!service.providers.speak)throw Error('Speech provider not configured');
-          const audio=await service.providers.speak(data.text);
+        const audio=await synthesize(data.text);
+        {
           const current=store.get('call',data.callId);
           if(!current||current.phase==='ended'||current.token!==c.token)throw Error('Call is no longer active');
           if(c.token)service.identity.authenticate(c.token);
           if(!Buffer.isBuffer(audio)||!audio.length||audio.length>MAX_AUDIO)throw Error('Invalid speech response');
           res.writeHead(200,{'Content-Type':'audio/wav','Cache-Control':'no-store'});return res.end(audio);
-        }finally{speechBusy--;}
+        }
       }
       return json({ok:false},404);
-    }catch(e){if(!res.headersSent)json({ok:false,error:'Voice bridge request failed'},e.status===413?413:400);else res.end();}
+    }catch(e){if(!res.headersSent)json({ok:false,error:'Voice bridge request failed'},[413,429].includes(e.status)?e.status:400);else res.end();}
   };
-  handler.close=()=>clearInterval(cleanupTimer);
+  handler.close=()=>{clearInterval(cleanupTimer);speechCache.clear();};
   return handler;
 }

@@ -205,3 +205,57 @@ test('configured Voice Elements and fax providers are reflected without claiming
  const {server,service}=fixture(t);service.providers.supports=channel=>channel==='fax';
  const r=await request(server,'/api/admin/status',{token:admin});assert.equal(r.body.voiceConfigured,true);assert.equal(r.body.faxConfigured,true);assert.equal(r.body.liveVerified,false);assert.doesNotMatch(r.text,new RegExp(secret));
 });
+
+test('processing announces once and polls without repeating paid speech',async t=>{
+ const {server,store}=await prepared(t,'processing');
+ for(let i=0;i<8;i++){const r=await step(server);assert.equal(r.status,200);if(i===0)assert.match(r.text,/רק רגע/);else assert.doesNotMatch(r.text,/<Say/);assert.match(r.text,/<Pause length="1"/);assert.doesNotMatch(r.text,/<Hangup/);}
+ assert.equal(store.get('call',id).processingNotified,true);
+});
+test('fixed prompts share a generation while personal speech is never cached',async t=>{
+ const {server,service}=await prepared(t);let calls=0;service.providers.speak=async()=>{calls++;await new Promise(r=>setImmediate(r));return wav();};
+ const speak=text=>request(server,'/voice-elements/speech',{method:'POST',body:{callId:id,text},headers:{authorization:'Bearer '+secret}});
+ const both=await Promise.all([speak('רק רגע.'),speak('רק רגע.')]);assert.ok(both.every(r=>r.status===200));assert.equal(calls,1);
+ assert.equal((await speak('רק רגע.')).status,200);assert.equal(calls,1);
+ await speak('תוכן פרטי לבדיקה');await speak('תוכן פרטי לבדיקה');assert.equal(calls,3);
+});
+test('failed synthesis does not poison fixed prompt cache',async t=>{
+ const {server,service}=await prepared(t);let calls=0;service.providers.speak=async()=>{calls++;if(calls===1)throw Error('unavailable');return wav();};
+ const speak=()=>request(server,'/voice-elements/speech',{method:'POST',body:{callId:id,text:'רק רגע.'},headers:{authorization:'Bearer '+secret}});
+ assert.equal((await speak()).status,400);assert.equal((await speak()).status,200);assert.equal((await speak()).status,200);assert.equal(calls,2);
+});
+test('telephone context reaches the answer provider and failed answer clears stale speech',async t=>{
+ const {server,service,store}=await prepared(t);let seen;service.providers.transcribe=async()=> 'שאלה קצרה';service.providers.chat=async(messages,options)=>{seen=options;throw Error('unavailable');};
+ const c=store.get('call',id);store.put('call',{...c,speech:'תשובה ישנה שאין להשמיע שוב'});
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording,RecordingSid:upload.body.recording},'?record=record');
+ for(let i=0;i<30&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ assert.deepEqual(seen,{channel:'telephone'});assert.equal(store.get('call',id).speech,null);
+ const response=await step(server);assert.doesNotMatch(response.text,/תשובה ישנה/);
+});
+
+test('recovery audio is fixed, authenticated and reused across requests',async t=>{
+ const {server,service}=fixture(t);let calls=0;service.providers.speak=async text=>{calls++;assert.match(text,/תקלה זמנית בהשמעה/);assert.doesNotMatch(text,/PRIVATE/);return wav();};
+ const post=key=>request(server,'/voice-elements/recovery',{method:'POST',body:{text:'PRIVATE'},headers:{authorization:'Bearer '+key}});
+ assert.equal((await post('bad')).status,403);assert.equal(calls,0);
+ assert.equal((await post(secret)).status,200);assert.equal((await post(secret)).status,200);assert.equal(calls,1);
+});
+test('speech recovery returns to menu without approving or sending and preserves saved work',async t=>{
+ const {server,service,store,conversation,login,u}=await prepared(t);const draft=service.createDraft(u.user.id,false);let sends=0;service.providers.deliver=service.providers.familyMail=async()=>{sends++;throw Error('must not send');};
+ const before=store.get('call',id);store.put('call',{...before,phase:'delivery-confirm',draftId:draft.id,inputNonce:'old-input',recordNonce:'old-record',deliveryPresented:'old-approval',speech:'old-answer'});
+ const r=await request(server,'/voice-elements/speech-recover',{method:'POST',body:{callId:id},headers:{authorization:'Bearer '+secret}});assert.equal(r.status,200);
+ const after=store.get('call',id);assert.equal(after.phase,'main');assert.equal(after.token,login.token);assert.equal(after.inputNonce,null);assert.equal(after.recordNonce,null);assert.equal(after.deliveryPresented,null);assert.equal(after.speech,null);assert.equal(after.speechRecoveries,1);assert.ok(store.get('conversation',conversation.id));assert.equal(store.get('draft',draft.id).revision,draft.revision);assert.equal(sends,0);
+ const menu=await step(server);assert.match(menu.text,/כותבים עתירה/);assert.doesNotMatch(menu.text,/old-answer/);
+});
+test('speech recovery cannot restore revoked login or ended calls',async t=>{
+ const {server,service,store,login}=await prepared(t);service.identity.logout(login.token);
+ const post=()=>request(server,'/voice-elements/speech-recover',{method:'POST',body:{callId:id},headers:{authorization:'Bearer '+secret}});
+ assert.equal((await post()).status,200);assert.equal(store.get('call',id).phase,'login-code');assert.equal(store.get('call',id).token,null);
+ await request(server,'/voice-elements/end',{method:'POST',body:{callId:id},headers:{authorization:'Bearer '+secret}});
+ assert.equal((await post()).status,400);assert.equal(store.get('call',id).phase,'ended');
+});
+test('fixed speech cache evicts within its byte limit and excludes arbitrary text',async()=>{
+ const {fixedSpeechCache}=await import('../../src/mirkam/speech-cache.js');const cache=fixedSpeechCache({maxBytes:100});let calls=0;const generate=async()=>{calls++;return Buffer.alloc(80);};
+ await cache.get('רק רגע.',generate);await cache.get('רק רגע.',generate);assert.equal(calls,1);
+ await cache.get('אני כאן. מה תרצו לשאול?',generate);await cache.get('רק רגע.',generate);assert.equal(calls,3);
+ await cache.get('מידע פרטי',generate);await cache.get('מידע פרטי',generate);assert.equal(calls,5);
+});

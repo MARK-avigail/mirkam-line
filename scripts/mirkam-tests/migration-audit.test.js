@@ -9,7 +9,7 @@ import {Store} from '../../src/mirkam/store.js';
 // Exercise byte limits with segmented streams: no content-length, honest and dishonest headers.
 for(const size of [0,1,2,7,15,16,17,31,32,33,64])for(const header of ['absent','accurate','underreported'])test(`provider response cap: ${size} bytes, ${header} length`,async t=>{
  const original=globalThis.fetch;let cancelled=false;
- globalThis.fetch=async()=>({ok:true,headers:new Headers(header==='absent'?{}:{'content-length':String(header==='accurate'?size:0)}),body:{getReader(){let pos=0;return {async read(){if(pos>=size)return {done:true};const n=Math.min(7,size-pos);pos+=n;return {done:false,value:new Uint8Array(n).fill(65)};},async cancel(){cancelled=true;}};}}});t.after(()=>{globalThis.fetch=original;});
+ globalThis.fetch=async()=>({ok:true,headers:new Headers(header==='absent'?{}:{'content-length':String(header==='accurate'?size:0)}),body:{getReader(){let pos=0;return {async read(){if(pos>=size)return {done:true};const n=Math.min(7,size-pos);pos+=n;return {done:false,value:new Uint8Array(n).fill(65)};},async cancel(){cancelled=true;},releaseLock(){}};}}});t.after(()=>{globalThis.fetch=original;});
  if(size<=32)assert.equal((await requestBytes('https://provider.example.test',{},32)).length,size);
  else {await assert.rejects(requestBytes('https://provider.example.test',{},32),/גדולה מדי/);if(header!=='accurate')assert.equal(cancelled,true);}
 });

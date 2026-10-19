@@ -19,14 +19,14 @@ export function createVoice(service,transport={}){
   function save(c){return store.put('call',c);}
   function job(c,kind,task){
     const j=store.create('voice-job',c.owner,{callId:c.id,kind,status:'processing',previous:c.phase});
-    c=save({...c,phase:'processing',jobId:j.id});
+    c=save({...c,phase:'processing',jobId:j.id,processingNotified:false});
     const work=Promise.resolve().then(task).then(result=>store.atomic(()=>{
       store.put('voice-job',{...j,status:'done'});
       const current=store.get('call',c.id);if(current?.jobId!==j.id||current.phase==='ended')return;
-      store.put('call',{...current,...result,jobId:null});
+      store.put('call',{...current,...result,jobId:null,processingMs:Date.now()-j.createdAt});
     })).catch(()=>store.atomic(()=>{
       const current=store.get('call',c.id);
-      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:j.previous,jobId:null,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. יש לבדוק מצב משלוח לפני ניסיון נוסף.'});
+      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:j.previous,jobId:null,speech:null,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. יש לבדוק מצב משלוח לפני ניסיון נוסף.'});
       store.put('voice-job',{...j,status:'failed'});
     })).catch(()=>{
       // Persistence may also fail while recording an error. Never let this
@@ -63,7 +63,7 @@ export function createVoice(service,transport={}){
       }else{
         let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id,token=c.token,validate=()=>service.identity.authenticate(token);
         if(['delivery-channel','delivery-confirm'].includes(c.phase)&&(c.reviewCompleted!==true||c.reviewHash!==reviewHash(c.draftId,uid))){c=save({...c,phase:'draft',reviewHash:null,reviewCompleted:false,reviewIndex:0});digit='';}
-        if(c.phase==='processing'){out=say('הבקשה בעיבוד.')+'<Pause length="2"/>'+redirect();}
+        if(c.phase==='processing'){out=(c.processingNotified?'':say('רק רגע.'))+'<Pause length="1"/>'+redirect();c={...c,processingNotified:true};}
         else if(digit==='7'){c=save({...c,phase:'main',draftId:null});out=say('העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
         else if(digit==='*'){out=gather('לשמירה ויציאה הקישו 7. לחזרה לתפריט הראשי 8. לעזרה 9. לדילוג על פרט רשות 0. בזמן הקלטה סולמית מסיימת את ההקלטה.');}
         else if(digit==='8'){c=save({...c,phase:'main'});out=redirect();}
@@ -148,7 +148,7 @@ export function createVoice(service,transport={}){
           else{c=save({...c,deliveryPresented:c.nonce});out=gather(`החבילה תישלח אל ${target.name}. ${d.approval.channel==='fax'?'בפקס למספר '+String(target.fax).split('').join(' '):'במייל לכתובת '+String(target.email).split('').join(' ')}. לאישור ושליחה הקישו 1. לחזרה בלי שליחה 8.`);}
         }else if(['chat','family-compose','ticket'].includes(c.phase)){
           if(data.RecordingUrl){const phase=c.phase;c=job(c,'transcribe',async()=>{const providerId=data.RecordingSid||data.RecordingUrl,audio=track(uid,providerId);let text;try{service.reserveAI(uid);text=await transcribe(data.RecordingUrl);}finally{await dispose(uid,providerId,audio.id);}validate();
-            if(phase==='chat'){const conv=store.owned('conversation',c.conversationId,uid),r=await service.chat(conv.id,uid,text,conv.revision,validate);return {phase:'chat',speech:r.messages.at(-1).text};}
+            if(phase==='chat'){const conv=store.owned('conversation',c.conversationId,uid),r=await service.chat(conv.id,uid,text,conv.revision,validate,{channel:'telephone'});return {phase:'chat',speech:r.messages.at(-1).text};}
             if(phase==='ticket'){service.ticket(uid,text);return {phase:'main',speech:'הפנייה נשמרה למשרד.'};}
             const message=service.compose(uid,c.contactId,text);return {phase:'family-review',messageId:message.id};});out=redirect();}
           else out=record(c.speech|| (c.phase==='chat'?'אני כאן. מה תרצו לשאול?':c.phase==='ticket'?'ספרו מה תרצו להעביר למשרד.':'מה תרצו לכתוב למשפחה? בסיום הקישו סולמית. נשמיע את הנוסח לבדיקה לפני השליחה.'));
