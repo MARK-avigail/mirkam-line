@@ -54,7 +54,7 @@ export function createVoiceElements(service){
         const data=JSON.parse((await bytes(req,1000)).toString('utf8'));
         if(!callPattern.test(data.callId||''))throw Error('Invalid call');
         const c=store.get('call',data.callId);
-        if(c){if(c.token)service.identity.logout(c.token);store.put('call',{...c,phase:'ended',token:null,code:null,inputNonce:null,recordNonce:null});}
+        if(c){if(c.token)service.identity.logout(c.token);store.put('call',{...c,phase:'ended',token:null,code:null,inputNonce:null,recordNonce:null,jobId:null});}
         for(const r of store.list('bridge-audio'))if(r.callId===data.callId)store.remove('bridge-audio',r.id);
         return json({ok:true});
       }
@@ -83,6 +83,9 @@ export function createVoiceElements(service){
         try{
           if(!service.providers.speak)throw Error('Speech provider not configured');
           const audio=await service.providers.speak(data.text);
+          const current=store.get('call',data.callId);
+          if(!current||current.phase==='ended'||current.token!==c.token)throw Error('Call is no longer active');
+          if(c.token)service.identity.authenticate(c.token);
           if(!Buffer.isBuffer(audio)||!audio.length||audio.length>MAX_AUDIO)throw Error('Invalid speech response');
           res.writeHead(200,{'Content-Type':'audio/wav','Cache-Control':'no-store'});return res.end(audio);
         }finally{speechBusy--;}

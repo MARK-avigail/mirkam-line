@@ -137,3 +137,41 @@ test('Live listening trial is owner-only and cannot accept a different voice or 
  assert.equal((await request(server,url,{method:'POST',token:admin,body:{sdp}})).status,409);
  assert.equal((await request(server,url,{method:'DELETE',token:admin,body:{id:'foreign'}})).status,200);assert.equal(closes,1);
 });
+
+test('speech completed after hangup is discarded rather than returned to the bridge',async t=>{
+ const {server,service}=await prepared(t);let release,started;
+ const began=new Promise(r=>started=r);service.providers.speak=()=>{started();return new Promise(r=>release=r);};
+ const pending=request(server,'/voice-elements/speech',{method:'POST',body:{callId:id,text:'מידע פרטי'},headers:{authorization:'Bearer '+secret}});
+ await began;
+ await request(server,'/voice-elements/end',{method:'POST',body:{callId:id},headers:{authorization:'Bearer '+secret}});
+ release(wav());const r=await pending;assert.equal(r.status,400);assert.doesNotMatch(r.text,/RIFF/);
+});
+test('revoking login during speech generation prevents releasing the audio',async t=>{
+ const {server,service,login}=await prepared(t);let release,started;
+ const began=new Promise(r=>started=r);service.providers.speak=()=>{started();return new Promise(r=>release=r);};
+ const pending=request(server,'/voice-elements/speech',{method:'POST',body:{callId:id,text:'מידע פרטי'},headers:{authorization:'Bearer '+secret}});
+ await began;service.identity.logout(login.token);release(wav());assert.equal((await pending).status,400);
+});
+test('a pending transcription failure cannot revive an ended call or restore its job',async t=>{
+ const {server,service,store}=await prepared(t);let fail,started;
+ const began=new Promise(r=>started=r);service.providers.transcribe=()=>{started();return new Promise((resolve,reject)=>fail=reject);};
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording,RecordingSid:upload.body.recording},'?record=record');await began;
+ await request(server,'/voice-elements/end',{method:'POST',body:{callId:id},headers:{authorization:'Bearer '+secret}});
+ fail(Error('provider failed'));
+ for(let i=0;i<20;i++)await new Promise(r=>setImmediate(r));
+ const c=store.get('call',id);assert.equal(c.phase,'ended');assert.equal(c.token,null);assert.equal(c.jobId,null);assert.equal((await step(server)).status,403);
+});
+
+test('announcements and family inbox can be interrupted with return during playback',async t=>{
+ const {server,store,u}=await prepared(t,'branch');
+ for(const branch of ['4','5']){
+  const c=store.get('call',id);store.put('call',{...c,branch,inputNonce:'choose',phase:'branch'});
+  if(branch==='4')store.create('message',u.user.id,{direction:'incoming',text:'הודעה מהמשפחה'});
+  else store.create('announcement','all',{active:true,text:'עדכון מהמערכת'});
+  const r=await step(server,{Digits:branch==='4'?'2':'1'},'?input=choose');
+  assert.match(r.text,/<Response><Gather[^>]*><Say/);assert.match(r.text,branch==='4'?/הודעה מהמשפחה/:/עדכון מהמערכת/);
+  const current=store.get('call',id);await step(server,{Digits:'8'},'?input='+current.inputNonce);
+  assert.equal(store.get('call',id).phase,'main');
+ }
+});

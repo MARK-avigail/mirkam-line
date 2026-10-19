@@ -4,6 +4,7 @@ import { transcribeTwilio } from '../ivr/stt.js';
 
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 const say=s=>`<Say language="he-IL" voice="${escape(process.env.TWILIO_TTS_VOICE||'Google.he-IL-Standard-A')}">${escape(s)}</Say>`;
+const deliveryStatus=status=>({accepted_by_mail_server:'שרת המייל קיבל את המסמכים. המסירה לנמען עדיין לא אומתה.',accepted_by_fax_provider:'ספק הפקס קיבל את המסמכים. המסירה עדיין בבדיקה.',fax_delivered:'ספק הפקס אישר מסירה.',fax_failed:'הפקס לא נמסר. יש לפנות למשרד.',delivery_unknown:'מצב המשלוח בבירור מול המשרד.',sending:'המשלוח בטיפול.'}[status]||'מצב המשלוח ייבדק במשרד.');
 const redirect=()=>'<Redirect method="POST">/voice/step</Redirect>';
 const gatherXml=(text,digits=1)=>`<Gather numDigits="${digits}" finishOnKey="#" action="/voice/step" method="POST" timeout="${digits===6?30:12}">${say(text)}</Gather>${redirect()}`;
 export function validVoiceSignature(url,body,signature,secret){if(!secret||typeof signature!=='string')return false;const text=url+Object.keys(body).sort().map(k=>k+body[k]).join(''),expected=createHmac('sha1',secret).update(text).digest('base64');const a=Buffer.from(expected),b=Buffer.from(signature);return a.length===b.length&&timingSafeEqual(a,b);}
@@ -20,12 +21,12 @@ export function createVoice(service,transport={}){
     const j=store.create('voice-job',c.owner,{callId:c.id,kind,status:'processing',previous:c.phase});
     c=save({...c,phase:'processing',jobId:j.id});
     const work=Promise.resolve().then(task).then(result=>store.atomic(()=>{
-      const current=store.get('call',c.id);if(current?.jobId!==j.id)return;
+      const current=store.get('call',c.id);if(current?.jobId!==j.id||current.phase==='ended')return;
       store.put('call',{...current,...result,jobId:null});
       store.put('voice-job',{...j,status:'done'});
     })).catch(()=>store.atomic(()=>{
       const current=store.get('call',c.id);
-      if(current?.jobId===j.id)store.put('call',{...current,phase:j.previous,jobId:null,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. יש לבדוק מצב משלוח לפני ניסיון נוסף.'});
+      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:j.previous,jobId:null,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. יש לבדוק מצב משלוח לפני ניסיון נוסף.'});
       store.put('voice-job',{...j,status:'failed'});
     })).catch(()=>{
       // Persistence may also fail while recording an error. Never let this
@@ -92,12 +93,12 @@ export function createVoice(service,transport={}){
           if(!digit)out=gather(b.children.map(s=>`${s.title}, הקישו ${s.digit}`).join('. '));
           else if(b.digit==='1'&&['1','2'].includes(digit)){const d=service.createDraft(uid,digit==='1');c=save({...c,draftId:d.id,phase:'draft',courtPage:0,reviewIndex:0,reviewHash:null});out=redirect();}
           else if(b.digit==='2'&&digit==='1'){c=save({...c,phase:'draft-list',listPage:0});out=redirect();}
-          else if(b.digit==='2'&&['2','3'].includes(digit)){const items=store.list(digit==='2'?'version':'delivery',uid);out=say(items.length?items.slice(0,8).map((v,i)=>`${i+1}. ${digit==='2'?'גרסת מסמך':v.status}. ${new Date(v.createdAt).toLocaleDateString('he-IL')}`).join('. '):'אין פריטים שמורים.')+gather('לחזרה לתפריט הראשי הקישו 8.');}
+          else if(b.digit==='2'&&['2','3'].includes(digit)){const items=store.list(digit==='2'?'version':'delivery',uid);out=say(items.length?items.slice(0,8).map((v,i)=>`${i+1}. ${digit==='2'?'גרסת מסמך':deliveryStatus(v.status)}. ${new Date(v.createdAt).toLocaleDateString('he-IL')}`).join('. '):'אין פריטים שמורים.')+gather('לחזרה לתפריט הראשי הקישו 8.');}
           else if(b.digit==='3'){if(digit==='1'){const conv=service.newConversation(uid,'שיחה '+new Date().toLocaleDateString('he-IL'));c=save({...c,conversationId:conv.id,phase:'chat'});out=redirect();}else if(digit==='2'){c=save({...c,phase:'conversation-list',listPage:0});out=redirect();}else out=redirect();}
           else if(b.digit==='4'&&digit==='1'){c=save({...c,phase:'contact-list',listPage:0});out=redirect();}
-          else if(b.digit==='4'&&digit==='2'){out=say(store.list('message',uid).filter(m=>m.direction==='incoming').slice(0,8).map(m=>m.text).join('. ')||'אין תשובות חדשות.')+gather('לחזרה הקישו 8.');}
-          else if(b.digit==='4'&&digit==='3'){out=say(service.contacts(uid).map(x=>x.name).join('. ')||'אין אנשי קשר מאושרים. אפשר לפנות למשרד.')+gather('לחזרה הקישו 8.');}
-          else if(b.digit==='5'&&digit==='1'){out=say(store.list('announcement','all').filter(a=>a.active).map(a=>a.text).join('. ')||'אין הודעות חדשות.')+gather('לחזרה הקישו 8.');}
+          else if(b.digit==='4'&&digit==='2'){out=gather((store.list('message',uid).filter(m=>m.direction==='incoming').slice(0,8).map(m=>m.text).join('. ')||'אין תשובות חדשות.')+ ' לחזרה הקישו 8.');}
+          else if(b.digit==='4'&&digit==='3'){out=gather((service.contacts(uid).map(x=>x.name).join('. ')||'אין אנשי קשר מאושרים. אפשר לפנות למשרד.')+ ' לחזרה הקישו 8.');}
+          else if(b.digit==='5'&&digit==='1'){out=gather((store.list('announcement','all').filter(a=>a.active).map(a=>a.text).join('. ')||'אין הודעות חדשות.')+ ' לחזרה הקישו 8.');}
           else if(b.digit==='5'&&digit==='2'){const m=service.membership(uid);out=say(`מצב המינוי: ${{free:'ללא חיוב',trial:'תקופת ניסיון',paid:'פעיל',expired:'תקופת הניסיון הסתיימה'}[m.status]}. הטיוטות נשמרות בחשבון.`)+gather('לחזרה הקישו 8.');}
           else if(b.digit==='5'&&digit==='3'){c=save({...c,phase:'ticket'});out=redirect();}else out=redirect();
         }else if(['draft-list','conversation-list','contact-list'].includes(c.phase)){
@@ -140,11 +141,11 @@ export function createVoice(service,transport={}){
           if(data.RecordingUrl){const d=service.draft(c.draftId,uid);c=job(c,'clarify',async()=>{retain(uid,data.RecordingSid||data.RecordingUrl);service.reserveAI(uid);const text=await transcribe(data.RecordingUrl);validate();await service.clarify(d.id,uid,text,d.revision,validate);return {phase:'draft'};});out=redirect();}
           else{c=save({...c,phase:'draft'});out=redirect();}
         }else if(c.phase==='delivery-channel'){
-          const channel={1:'email',2:'fax',3:'both'}[digit];if(channel){const d=service.draft(c.draftId,uid),offered=service.offer(d.id,uid,d.court.id,channel,d.revision);c=save({...c,phase:'delivery-confirm',nonce:offered.approval.nonce});out=redirect();}else out=gather('לשליחה במייל הקישו 1. בפקס 2. בשניהם 3.');
+          const channel={1:'email',2:'fax'}[digit];if(channel){const d=service.draft(c.draftId,uid),offered=service.offer(d.id,uid,d.court.id,channel,d.revision);c=save({...c,phase:'delivery-confirm',nonce:offered.approval.nonce});out=redirect();}else out=gather('לשליחה במייל הקישו 1. בפקס 2.');
         }else if(c.phase==='delivery-confirm'){
           const d=service.draft(c.draftId,uid),target=service.destination(d.approval.targetId);
-          if(digit==='1'&&c.deliveryPresented===c.nonce){const approved=service.approve(d.id,uid,c.nonce,true,d.revision);c=job(c,'delivery',async()=>{const result=await service.send(d.id,uid,approved.revision);return {phase:'main',speech:'מצב המשלוח: '+result.status};});out=redirect();}
-          else{c=save({...c,deliveryPresented:c.nonce});out=gather(`החבילה תישלח אל ${target.name}. ערוץ: ${d.approval.channel}. מייל ${target.email.split('').join(' ')}. פקס ${target.fax}. לאישור ושליחה הקישו 1. לחזרה בלי שליחה 8.`);}
+          if(digit==='1'&&c.deliveryPresented===c.nonce){const approved=service.approve(d.id,uid,c.nonce,true,d.revision);c=job(c,'delivery',async()=>{const result=await service.send(d.id,uid,approved.revision);return {phase:'main',speech:deliveryStatus(result.status)};});out=redirect();}
+          else{c=save({...c,deliveryPresented:c.nonce});out=gather(`החבילה תישלח אל ${target.name}. ${d.approval.channel==='fax'?'בפקס למספר '+String(target.fax).split('').join(' '):'במייל לכתובת '+String(target.email).split('').join(' ')}. לאישור ושליחה הקישו 1. לחזרה בלי שליחה 8.`);}
         }else if(['chat','family-compose','ticket'].includes(c.phase)){
           if(data.RecordingUrl){const phase=c.phase;c=job(c,'transcribe',async()=>{const providerId=data.RecordingSid||data.RecordingUrl,audio=track(uid,providerId);let text;try{service.reserveAI(uid);text=await transcribe(data.RecordingUrl);}finally{await dispose(uid,providerId,audio.id);}validate();
             if(phase==='chat'){const conv=store.owned('conversation',c.conversationId,uid),r=await service.chat(conv.id,uid,text,conv.revision,validate);return {phase:'chat',speech:r.messages.at(-1).text};}
