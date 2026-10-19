@@ -8,6 +8,5 @@ docker stop --time 30 mirkam-voice-elements >/dev/null
 docker rename mirkam-voice-elements "mirkam-voice-elements-before-$(date +%s)"
 bash deploy/apply-management-release.sh
 bash deploy/start-voice-elements.sh
-docker exec mirkam-line node scripts/create-voice-test-user.mjs
 sleep 3
 docker logs --tail 15 mirkam-voice-elements

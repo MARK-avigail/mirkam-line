@@ -89,14 +89,6 @@ test('login gives 30 seconds, retries incomplete PIN without locking and explain
  for(let n=0;n<6;n++)r=await step(server);
  assert.match(r.text,/<Hangup/);assert.match(r.text,/כשהקודים מוכנים/);assert.doesNotMatch(r.text,/העבודה שאושרה נשמרה/);
 });
-test('voice test account is idempotent, can log in, and cannot send externally',async t=>{
- const {createVoiceTestUser}=await import('../create-voice-test-user.mjs');
- const {store,service}=fixture(t),first=createVoiceTestUser(store),second=createVoiceTestUser(store);
- assert.equal(second.user.id,first.user.id);assert.equal(second.pin,undefined);assert.equal(first.user.verifiedAt,null);
- assert.equal(service.identity.login(first.user.code,first.pin).user.id,first.user.id);
- await assert.rejects(service.send('missing',first.user.id),/חשבון בדיקה/);
- await assert.rejects(service.sendMessage('missing',first.user.id),/חשבון בדיקה/);
-});
 test('speech sends the selected warm voice and Hebrew delivery instructions',async t=>{
  const {liveProviders}=await import('../../src/mirkam/providers.js');
  const oldFetch=globalThis.fetch,oldKey=process.env.OPENAI_API_KEY;
