@@ -17,16 +17,20 @@ import static org.junit.Assert.*;
 public class LocalUpdatesTest {
     private Context context;
     private byte[] bundle;
+    private int bundleVersion;
     @Before public void setUp() throws Exception {
         context=RuntimeEnvironment.getApplication();
         LocalUpdates.prefs(context).edit().clear().commit();
         LocalUpdates.remove(LocalUpdates.root(context));
         bundle=LocalUpdates.read(getClass().getResourceAsStream("/signed-android-update.json"),LocalUpdates.LIMIT);
+        JSONObject envelope=new JSONObject(new String(bundle,StandardCharsets.UTF_8));
+        bundleVersion=new JSONObject(new String(android.util.Base64.decode(envelope.getString("payload"),android.util.Base64.DEFAULT),StandardCharsets.UTF_8)).getInt("version");
+        assertTrue("Fixture must be a newer update",bundleVersion>1);
     }
     @Test public void signedBundleStagesWithoutChangingCurrentScreen() throws Exception {
         assertTrue(LocalUpdates.stage(context,bundle).getBoolean("available"));
         assertEquals(0,LocalUpdates.prefs(context).getInt("current",0));
-        assertEquals(2,LocalUpdates.prefs(context).getInt("pending",0));
+        assertEquals(bundleVersion,LocalUpdates.prefs(context).getInt("pending",0));
     }
     @Test public void nextLaunchLoadsLocalFilesAndReadyKeepsThem() throws Exception {
         LocalUpdates.stage(context,bundle);
@@ -34,7 +38,7 @@ public class LocalUpdatesTest {
         assertNotNull(path);
         assertTrue(new File(path,"index.html").isFile());
         assertTrue(new File(path,"native-bridge.js").isFile());
-        assertEquals(2,LocalUpdates.ready(context));
+        assertEquals(bundleVersion,LocalUpdates.ready(context));
         assertEquals(path,LocalUpdates.start(context));
     }
     @Test public void incompleteStartupRollsBackAndDoesNotRetrySameVersion() throws Exception {
@@ -51,7 +55,7 @@ public class LocalUpdatesTest {
     }
     @Test public void missingUpdateFilesFallBackToPackagedHome() throws Exception {
         LocalUpdates.stage(context,bundle);
-        LocalUpdates.remove(new File(LocalUpdates.root(context),"2"));
+        LocalUpdates.remove(new File(LocalUpdates.root(context),Integer.toString(bundleVersion)));
         assertNull(LocalUpdates.start(context));
     }
 }

@@ -4,6 +4,7 @@ const path=require('node:path');
 const fs=require('node:fs');
 const {Updates}=require('./updates.cjs');
 let updater;
+let smokeUpdateVersion;
 const {validateRequest}=require('./network.cjs');
 let mainWindow;
 const updateSmoke=process.argv.includes('--mirkam-update-smoke');
@@ -14,7 +15,7 @@ app.whenReady().then(()=>{
   ipcMain.on('mirkam:server-get',(event)=>{if(event.sender!==mainWindow?.webContents){event.returnValue='';return;}try{event.returnValue=JSON.parse(fs.readFileSync(path.join(app.getPath('userData'),'server.json'),'utf8')).origin||'';}catch{event.returnValue='';}});
   ipcMain.on('mirkam:server-save',(event,origin)=>{if(event.sender!==mainWindow?.webContents){event.returnValue=false;return;}try{validateRequest({endpoint:origin,route:'/health'});fs.writeFileSync(path.join(app.getPath('userData'),'server.json'),JSON.stringify({origin}));event.returnValue=true;}catch{event.returnValue=false;}});
   updater=new Updates(path.join(app.getPath('userData'),'ui-updates-0.4'),path.join(__dirname,'../www'),fs.readFileSync(path.join(__dirname,'../update-public.pem'),'utf8'));
-  if(updateSmoke){const arg=process.argv.find(x=>x.startsWith('--update-bundle='));if(!arg)throw Error('Missing smoke bundle');updater.stage(fs.readFileSync(arg.slice('--update-bundle='.length),'utf8'));}
+  if(updateSmoke){const arg=process.argv.find(x=>x.startsWith('--update-bundle='));if(!arg)throw Error('Missing smoke bundle');const staged=updater.stage(fs.readFileSync(arg.slice('--update-bundle='.length),'utf8'));if(!staged.available)throw Error('Smoke bundle was not staged');smokeUpdateVersion=staged.version;}
   const home=updater.start();
   for(const [name,fn] of [['mirkam:update-check',()=>updater.check()],['mirkam:update-ready',()=>updater.ready()]])ipcMain.handle(name,(event)=>{if(event.sender!==mainWindow?.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error('Untrusted frame');return fn();});
   ipcMain.handle('mirkam:request',async(event,input)=>{
@@ -38,7 +39,7 @@ app.whenReady().then(()=>{
           try{await fetch('/api/home');throw Error('Unexpected server access');}catch(error){if(!error.message.includes('כתובת שרת'))throw error;}
           return 'OFFLINE_HOME_OK';
         })()`);
-        if(updateSmoke&&updater.read().current!==2)throw Error('Staged UI update not loaded');
+        if(updateSmoke&&(updater.read().current!==smokeUpdateVersion||path.resolve(home)!==path.resolve(updater.dir(smokeUpdateVersion))))throw Error('Staged UI update not loaded');
         console.log(result);app.exit(result==='OFFLINE_HOME_OK'?0:1);
       }catch(error){console.error(error.message);app.exit(1);}
     });
