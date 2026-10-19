@@ -61,3 +61,26 @@ Open issues until live acceptance: SDK compatibility and TLS/transport behavior,
 provider-side audio cache lifetime, Hebrew voice quality/latency, silent recording
 termination (Record currently uses the maximum duration or #), and reliable SDK
 registration recovery. All need evidence before launch.
+
+## Prepared activation scripts (run only after the build gate passes)
+
+`deploy/prepare-voice-elements.py /path/to/IVRTransfer_Core.zip` runs as root on
+VPS. It validates the downloaded customer configuration, keeps the first runtime
+environment backup, preserves existing settings and creates/reuses a separate
+bridge token. It does not start calls. Supply the original private ZIP on the
+server; never commit it or put it in the Docker build context.
+
+Then the normal `deploy/apply-management-release.sh` loads that environment into
+the application. Finally `deploy/start-voice-elements.sh` verifies the authenticated
+backend readiness protocol and starts a separate, non-root, constrained bridge
+container sharing the application's network namespace. No new public port is
+opened. Registration logs still need review before an inbound test.
+
+The bridge uses a private tmpfs for temporary audio and has automatic restarts
+disabled during acceptance. If an application release replaces the container,
+stop and recreate the bridge to join the new network namespace; do not leave it
+attached to the retired application's container. Stop with
+`docker stop mirkam-voice-elements`. Preserve the private configuration and data.
+
+Configuration tests: `python3 scripts/provider-tests/voice-private-config.test.py`.
+These tests use fabricated credentials and temporary directories only.

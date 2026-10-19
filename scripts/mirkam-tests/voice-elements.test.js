@@ -73,3 +73,9 @@ test('WAV upload requires the current nonce and enforces size before storage',as
  const r=await request(server,'/voice-elements/record?call='+id+'&record='+nonce,{method:'POST',body:audio,headers:{authorization:'Bearer '+secret}});assert.equal(r.status,status);assert.equal(store.list('bridge-audio').length,0);
  }
 });
+test('readiness reports protocol compatibility, never a verified live call',async t=>{
+ const {server,store}=fixture(t);
+ assert.equal((await request(server,'/voice-elements/ready',{method:'POST',body:{}})).status,403);
+ const r=await request(server,'/voice-elements/ready',{method:'POST',body:{},headers:{authorization:'Bearer '+secret}});
+ assert.deepEqual(r.body,{ok:true,protocol:1,liveVerified:false});assert.equal(store.list('call').length,0);
+});

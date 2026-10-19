@@ -45,6 +45,7 @@ export function createVoiceElements(service){
     try{
       const url=new URL(req.url,'http://localhost');
       if(req.method!=='POST')return json({ok:false},405);
+      if(url.pathname==='/voice-elements/ready')return json({ok:true,protocol:1,liveVerified:false});
       if(url.pathname==='/voice-elements/step'){
         req.url='/voice/step'+url.search;
         return await voice(req,res);

@@ -9,4 +9,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 WORKDIR /app
 COPY --from=build /out ./
 USER 1000:1000
-ENTRYPOINT ["dotnet","Bridge.dll"]
+ENTRYPOINT ["dotnet","/app/Bridge.dll"]

@@ -25,6 +25,8 @@ internal static class Program
             var secret = Required("VOICE_ELEMENTS_BRIDGE_TOKEN");
             if (secret.Length < 32) throw new Exception("Bridge token is too short");
             Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+            using var readiness = JsonDocument.Parse(Post("/voice-elements/ready", Json(new { })));
+            if (readiness.RootElement.GetProperty("protocol").GetInt32() != 1) throw new Exception("Unsupported bridge backend");
             // Read the downloaded customer settings at runtime. Never bake it into the image.
             using var config = JsonDocument.Parse(File.ReadAllText(Required("VOICE_ELEMENTS_SETTINGS_FILE")));
             var settings = config.RootElement.GetProperty("ApplicationSettings").GetProperty("VoiceElementsTest");
