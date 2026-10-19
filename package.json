@@ -16,7 +16,8 @@
     "verify": "node scripts/verify.js",
     "test:offline": "node scripts/offline-check.js && node scripts/phone-regressions.js && node scripts/review-regressions.js && node scripts/account-regressions.js && node scripts/help-regressions.js",
     "test:legacy": "vitest run",
-    "native:prepare": "node scripts/native/prepare.mjs"
+    "native:prepare": "node scripts/native/prepare.mjs",
+    "test:voice-release": "python3 scripts/provider-tests/voice-release.test.py"
   },
   "dependencies": {
     "express": "^4.21.0",
