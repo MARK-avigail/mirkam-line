@@ -175,3 +175,33 @@ test('announcements and family inbox can be interrupted with return during playb
   assert.equal(store.get('call',id).phase,'main');
  }
 });
+
+test('the caller can leave an AI answer during playback without losing the conversation',async t=>{
+ const {server,store,conversation}=await prepared(t);let c=store.get('call',id);store.put('call',{...c,speech:'תשובה ארוכה של ליין'});
+ const r=await step(server);assert.match(r.text,/<Response><Gather[^>]*><Say[^>]*>תשובה ארוכה של ליין/);assert.match(r.text,/<\/Gather><Record/);
+ c=store.get('call',id);await step(server,{Digits:'8'},'?input='+c.inputNonce);assert.equal(store.get('call',id).phase,'main');assert.ok(store.get('conversation',conversation.id));
+});
+test('numeric end diagnostics reach only the owner without caller or transcript fields',async t=>{
+ const {server,store}=await prepared(t);
+ const diagnostics={durationSeconds:303,reason:'remote-disconnect',stage:'speech-play',generalCause:16,gcCause:0,dropError:0,scheduledDropSeconds:300,caller:'SECRET-CALLER',transcript:'SECRET-TEXT'};
+ const ended=await request(server,'/voice-elements/end',{method:'POST',body:{callId:id,diagnostics},headers:{authorization:'Bearer '+secret}});assert.equal(ended.status,200);
+ const r=await request(server,'/api/admin/voice-health',{token:admin});assert.equal(r.status,200);assert.equal(r.body.recent[0].durationSeconds,303);assert.equal(r.body.recent[0].scheduledDropSeconds,300);
+ assert.doesNotMatch(r.text,/SECRET|CallSid|VE1111|token|userId/);assert.doesNotMatch(JSON.stringify(store.get('call',id).diagnostics),/SECRET/);
+ assert.equal((await request(server,'/api/admin/voice-health')).status,401);
+ const f=fixture(t);const staff=f.service.staff.create('support','support','owner'),login=f.service.staff.login(staff.id,staff.password);
+ assert.equal((await request(f.server,'/api/admin/voice-health',{token:login.token})).status,403);
+});
+test('diagnostics reject arbitrary text in reason, stage and numeric codes',async t=>{
+ const {server,store}=await prepared(t);
+ await request(server,'/voice-elements/end',{method:'POST',body:{callId:id,diagnostics:{reason:'SECRET',stage:'SECRET',durationSeconds:-1,generalCause:'SECRET',gcCause:1e20,dropError:null}},headers:{authorization:'Bearer '+secret}});
+ assert.equal(store.get('call',id).diagnostics,null);
+});
+test('diagnostic history is bounded and does not expose other call fields',async t=>{
+ const {server,store}=fixture(t);
+ for(let i=0;i<25;i++)store.create('call','voice',{phase:'ended',endedAt:1000+i,diagnostics:{durationSeconds:i,reason:'error',stage:'speech-play'},token:'SECRET'});
+ const r=await request(server,'/api/admin/voice-health',{token:admin});assert.equal(r.body.recent.length,10);assert.equal(r.body.recent[0].durationSeconds,24);assert.equal(r.body.recent[9].durationSeconds,15);assert.doesNotMatch(r.text,/SECRET/);
+});
+test('configured Voice Elements and fax providers are reflected without claiming live success',async t=>{
+ const {server,service}=fixture(t);service.providers.supports=channel=>channel==='fax';
+ const r=await request(server,'/api/admin/status',{token:admin});assert.equal(r.body.voiceConfigured,true);assert.equal(r.body.faxConfigured,true);assert.equal(r.body.liveVerified,false);assert.doesNotMatch(r.text,new RegExp(secret));
+});

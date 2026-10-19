@@ -1,5 +1,6 @@
 import {timingSafeEqual,randomUUID} from 'node:crypto';
 import {createVoice} from './voice.js';
+import {callDiagnostics} from './call-health.js';
 
 const callPattern=/^VE[a-f0-9]{32}$/;
 const MAX_AUDIO=6*1024*1024;
@@ -54,7 +55,7 @@ export function createVoiceElements(service){
         const data=JSON.parse((await bytes(req,1000)).toString('utf8'));
         if(!callPattern.test(data.callId||''))throw Error('Invalid call');
         const c=store.get('call',data.callId);
-        if(c){if(c.token)service.identity.logout(c.token);store.put('call',{...c,phase:'ended',token:null,code:null,inputNonce:null,recordNonce:null,jobId:null});}
+        if(c){if(c.token)service.identity.logout(c.token);store.put('call',{...c,phase:'ended',token:null,code:null,inputNonce:null,recordNonce:null,jobId:null,endedAt:c.endedAt||Date.now(),diagnostics:c.diagnostics||callDiagnostics(data.diagnostics)});}
         for(const r of store.list('bridge-audio'))if(r.callId===data.callId)store.remove('bridge-audio',r.id);
         return json({ok:true});
       }

@@ -1,3 +1,4 @@
+import {callHealth} from './call-health.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,6 +46,7 @@ export function createMirkamServer(service){
       if(route.startsWith('/api/admin/')){
         const auth=staff(req,service),actor=auth.actor,suffix=route.slice(11);
         if(!permitted(auth.role,suffix))return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
+        if(suffix==='voice-health'&&method==='GET'){if(auth.role!=='owner')return send({ok:false,error:'נדרשת הרשאת בעלת המערכת.'},403);return send({ok:true,...callHealth(service.store)});}
         if(suffix==='session'&&method==='POST')return send({ok:true});
         if(suffix==='live-voice'){
           if(auth.role!=='owner')return send({ok:false,error:'נדרשת הרשאת בעלת המערכת.'},403);
@@ -177,7 +179,7 @@ export function createMirkamServer(service){
         if(suffix==='audit'&&method==='GET')return send({ok:true,items:service.store.list('audit')});
         if(suffix==='tickets'&&method==='GET')return send({ok:true,items:service.store.list('ticket')});
         if(suffix==='line'&&method==='GET')return send({ok:true,branches:BRANCHES,channel:'telephone',liveVerified:false});
-        if(suffix==='status'&&method==='GET')return send({ok:true,aiConfigured:Boolean(process.env.OPENAI_API_KEY),emailConfigured:Boolean(process.env.SMTP_HOST&&process.env.SMTP_USER&&process.env.SMTP_PASS&&[465,587].includes(Number(process.env.SMTP_PORT||587))),voiceConfigured:Boolean(process.env.TWILIO_AUTH_TOKEN&&/^https:\/\//.test(process.env.BASE_URL||'')),faxConfigured:false,paymentConfigured:false,liveVerified:false});
+        if(suffix==='status'&&method==='GET')return send({ok:true,aiConfigured:Boolean(process.env.OPENAI_API_KEY),emailConfigured:Boolean(process.env.SMTP_HOST&&process.env.SMTP_USER&&process.env.SMTP_PASS&&[465,587].includes(Number(process.env.SMTP_PORT||587))),voiceConfigured:Boolean((process.env.TWILIO_AUTH_TOKEN&&/^https:\/\//.test(process.env.BASE_URL||''))||process.env.VOICE_ELEMENTS_BRIDGE_TOKEN?.length>=32),faxConfigured:Boolean(service.providers.supports?.('fax')),paymentConfigured:false,liveVerified:false});
         const match=suffix.match(/^users\/([a-f0-9-]+)\/(reset|status)$/);if(match&&method==='POST')return send({ok:true,result:match[2]==='reset'?service.identity.reset(match[1],actor):service.identity.suspend(match[1],data.active,actor)});
         throw Error('פעולת ניהול לא מוכרת.');
       }

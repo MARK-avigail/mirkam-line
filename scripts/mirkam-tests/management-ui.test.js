@@ -42,3 +42,10 @@ for(const role of ['support','billing'])for(const id of ['suite-line','suite-cha
 test('login offers exactly two workspaces and hides the navigation drawer',async()=>{
  const u=ui(async()=>json({ok:true,token:'session',role:'owner'}));await u.submit('staff-login-form');const cards=u.ids.get('admin-pane').children.find(n=>n.className==='module-picker');assert.equal(cards.children.length,2);assert.deepEqual(cards.children.map(n=>n.textContent),['מערכת הקו','ניהול המערכת']);assert.equal(u.ids.get('suite-sidebar').hidden,true);
 });
+
+test('owner can inspect recent disconnects from management without opening a terminal',async()=>{
+ const u=ui(async url=>url==='/api/staff-login'?json({ok:true,token:'session',role:'owner'}):url==='/api/admin/voice-health'?json({ok:true,recent:[{durationSeconds:303,reason:'remote-disconnect',stage:'speech-play',generalCause:16,gcCause:0,dropError:0,scheduledDropSeconds:300}]}):json({ok:true}));
+ await u.submit('staff-login-form');await u.click('admin-status');
+ const button=u.ids.get('admin-pane').children.find(n=>n.textContent==='בדיקת ניתוקים אחרונים');assert.ok(button);await button.onclick();
+ const content=text(u.ids.get('admin-pane'));assert.match(content,/5 דקות ו־3 שניות/);assert.match(content,/השמעה/);assert.match(content,/300 שניות/);
+});

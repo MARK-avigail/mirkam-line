@@ -21,9 +21,9 @@ export function createVoice(service,transport={}){
     const j=store.create('voice-job',c.owner,{callId:c.id,kind,status:'processing',previous:c.phase});
     c=save({...c,phase:'processing',jobId:j.id});
     const work=Promise.resolve().then(task).then(result=>store.atomic(()=>{
+      store.put('voice-job',{...j,status:'done'});
       const current=store.get('call',c.id);if(current?.jobId!==j.id||current.phase==='ended')return;
       store.put('call',{...current,...result,jobId:null});
-      store.put('voice-job',{...j,status:'done'});
     })).catch(()=>store.atomic(()=>{
       const current=store.get('call',c.id);
       if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:j.previous,jobId:null,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. יש לבדוק מצב משלוח לפני ניסיון נוסף.'});
@@ -44,7 +44,7 @@ export function createVoice(service,transport={}){
     let c=store.get('call',data.CallSid),out='';
     const nonce=new URL(req.url,'http://localhost').searchParams;
     const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('<Gather ',['family-review','delivery-confirm','oversight-confirm'].includes(c.phase)?'<Gather clearDigits="true" ':'<Gather ').replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
-    const record=(text,maxLength=180)=>{c={...c,recordNonce:randomUUID()};return say(text)+`<Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="${maxLength}" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;};
+    const record=(text,maxLength=180)=>{c={...c,inputNonce:randomUUID(),recordNonce:randomUUID()};return `<Gather numDigits="1" finishOnKey="" action="/voice/step?input=${c.inputNonce}" method="POST" timeout="1">${say(text)}</Gather><Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="${maxLength}" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;};
     try{
       if(!c)c=store.create('call','voice',{id:data.CallSid,phase:'login-code',silence:0});
       let digit=data.Digits||'';

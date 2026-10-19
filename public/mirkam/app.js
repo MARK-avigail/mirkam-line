@@ -266,7 +266,19 @@ $('admin-status').onclick=()=>run(async()=>{
  const r=await api('admin/status','GET',undefined,true),p=$('admin-pane');
  p.replaceChildren(node('h2','חיבורים ומוכנות'),node('p','בדיקת הגדרות בלבד — אינה בדיקת שיחה או משלוח חי. תשלום על מנוי AI אינו מגדיר אוטומטית מפתח API בשרת.'));
  const rows=[['AI וניסוח',r.aiConfigured,'הגדרת מפתח API בשרת ובדיקת תשובה בעברית'],['מייל יוצא',r.emailConfigured,'שליחת הודעת בדיקה ואימות הגעתה'],['קו טלפוני',r.voiceConfigured,'הגדרת ספק וכתובת callback וביצוע שיחה אמיתית'],['פקס',r.faxConfigured,'חיבור מתאם ספק ואימות משלוח'],['תשלום',r.paymentConfigured,'חיבור ספק ואימות תהליך חיוב בהסכמה']];
- for(const [title,configured,next] of rows){const box=node('section');box.className='connection-card';box.append(node('h3',title),node('p',configured?'הגדרות קיימות · טרם אומת כאן בבדיקה חיה':'לא מוגדר'),node('p',next));p.append(box);}reveal(p);
+ for(const [title,configured,next] of rows){const box=node('section');box.className='connection-card';box.append(node('h3',title),node('p',configured?'הגדרות קיימות · טרם אומת כאן בבדיקה חיה':'לא מוגדר'),node('p',next));p.append(box);}
+ if(adminRole==='owner'){
+  const health=node('section');p.append(health);
+  button('בדיקת ניתוקים אחרונים',async()=>{
+   const result=await api('admin/voice-health','GET',undefined,true);health.replaceChildren(node('h3','שיחות שהסתיימו'));
+   if(!result.recent.length)health.append(node('p','עדיין אין נתוני אבחון מהגשר המעודכן.'));
+   const reasons={'remote-disconnect':'ניתוק שהתקבל מהקו','duration-limit':'הגעה למגבלת הזמן ביישום','workflow-hangup':'סיום לפי התפריט','loop-limit':'סיום מחזורי התפריט','no-next-instruction':'חסרה הוראת המשך',error:'שגיאה'};
+   const stages={answer:'מענה',workflow:'תפריט','speech-generate':'יצירת קול','speech-convert':'המרת קול','speech-play':'השמעה','collect-digits':'הקלדת ספרות',record:'הקלטה','record-upload':'העברת הקלטה'};
+   for(const item of result.recent){const duration=Number.isInteger(item.durationSeconds)?Math.floor(item.durationSeconds/60)+' דקות ו־'+item.durationSeconds%60+' שניות':'משך לא ידוע';health.append(node('p',duration+' · '+(reasons[item.reason]||'סיבה לא ידועה')+' · '+(stages[item.stage]||'שלב לא ידוע')));health.append(node('p','קודי ספק: '+[item.generalCause,item.gcCause,item.dropError].map(x=>Number.isInteger(x)?x:'לא זמין').join(' / ')));if(item.scheduledDropSeconds>=0)health.append(node('p','טיימר ניתוק שהספק דיווח בתחילת השיחה: '+item.scheduledDropSeconds+' שניות.'));}
+   health.append(node('p','הנתונים מסייעים לבירור; ניתוק מהקו לבדו אינו קובע מי יזם אותו.'));
+  },p);
+ }
+ reveal(p);
 });
 $('admin-destinations').onclick=()=>adminForm('יעד מאומת',[['name','שם בית משפט'],['prisons','בתי סוהר מתאימים, מופרדים בפסיק'],['email','מייל'],['fax','פקס'],['verifiedSource','מקור האימות']],data=>api('admin/destinations','POST',{...data,prisons:data.prisons.split(',').map(x=>x.trim())},true));
 $('admin-contacts').onclick=()=>{if(!selectedUserId){$('status').textContent='פתחו משתמש כדי לנהל את אנשי הקשר שלו.';return;}return openContactForm(selectedUserId);};

@@ -142,6 +142,7 @@ internal static class Program
         var path = "/voice-elements/step";
         var fields = new Dictionary<string, string> { ["CallSid"] = callId };
         var sequence = 0;
+        var scheduledDropSeconds = -1;
         var stage = "answer";
         var endReason = "loop-limit";
         var elapsed = Stopwatch.StartNew();
@@ -187,7 +188,8 @@ internal static class Program
             try
             {
                 var remaining = (channel.DropTime - DateTime.UtcNow).TotalSeconds;
-                Console.WriteLine($"CALL_TIMER scheduled_drop_seconds={(remaining > 0 && remaining < 86400 ? (int)remaining : -1)} app_limit_seconds=1200");
+                scheduledDropSeconds = remaining > 0 && remaining < 86400 ? (int)remaining : -1;
+                Console.WriteLine($"CALL_TIMER scheduled_drop_seconds={scheduledDropSeconds} app_limit_seconds=1200");
             }
             catch { Console.WriteLine("CALL_TIMER unavailable"); }
             voice.WipeDigitBuffer();
@@ -237,6 +239,7 @@ internal static class Program
                             voice.ClearDigitBuffer = true;
                             voice.TerminationDigits = "#";
                             voice.MaximumTime = Math.Clamp((int?)command.Attribute("maxLength") ?? 180, 1, 180);
+                            voice.MaximumSilence = Math.Clamp((int?)command.Attribute("timeout") ?? 5, 1, 20);
                             voice.PlayTone(1000, 100, 500);
                             stage = "record";
                             voice.Record(filename);
@@ -270,10 +273,14 @@ internal static class Program
         }
         finally
         {
-            try { Console.WriteLine($"CALL_DISCONNECT general_cause={Convert.ToInt32(channel.GeneralCause)} gc_cause={Convert.ToInt32(channel.GcCause)} drop_error={Convert.ToInt32(channel.DropError)}"); }
+            int? generalCause = null, gcCause = null, dropError = null;
+            try { generalCause = Convert.ToInt32(channel.GeneralCause); gcCause = Convert.ToInt32(channel.GcCause); dropError = Convert.ToInt32(channel.DropError); }
             catch { Console.WriteLine("CALL_DISCONNECT codes_unavailable"); }
-            Console.WriteLine($"CALL_END reason={(disconnected ? "remote-disconnect" : DateTime.UtcNow >= deadline ? "duration-limit" : endReason)} stage={stage} seconds={(int)elapsed.Elapsed.TotalSeconds}");
-            try { Post("/voice-elements/end", Json(new { callId })); } catch { Console.WriteLine("CALL_END_CALLBACK_FAILED"); }
+            var reason = disconnected ? "remote-disconnect" : DateTime.UtcNow >= deadline ? "duration-limit" : endReason;
+            var durationSeconds = (int)elapsed.Elapsed.TotalSeconds;
+            Console.WriteLine($"CALL_DISCONNECT general_cause={generalCause} gc_cause={gcCause} drop_error={dropError}");
+            Console.WriteLine($"CALL_END reason={reason} stage={stage} seconds={durationSeconds}");
+            try { Post("/voice-elements/end", Json(new { callId, diagnostics = new { durationSeconds, reason, stage, generalCause, gcCause, dropError, scheduledDropSeconds } })); } catch { Console.WriteLine("CALL_END_CALLBACK_FAILED"); }
             Directory.Delete(folder, true);
         }
     }
