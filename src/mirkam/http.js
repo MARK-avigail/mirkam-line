@@ -138,6 +138,12 @@ export function createMirkamServer(service){
           service.store.audit(actor,'admin.message.'+(action||'compose'),item.id);
           return send({ok:true,item});
         }
+        const faxRefresh=suffix.match(/^users\/([a-f0-9-]+)\/deliveries\/([a-f0-9-]+)\/refresh$/);
+        if(faxRefresh&&method==='POST'){
+          if(auth.role!=='owner')return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
+          const item=await service.refreshFax(faxRefresh[2],faxRefresh[1],()=>{const current=staff(req,service);if(current.role!=='owner'||current.actor!==actor)throw Object.assign(Error('נדרשת כניסה מחדש.'),{status:403});});
+          return send({ok:true,item});
+        }
         const dossier=suffix.match(/^users\/([a-f0-9-]+)(?:\/(contacts))?$/);
         if(dossier&&method==='GET'&&!dossier[2]){
           const account=service.store.get('user',dossier[1]);if(!account)throw Object.assign(Error('המשתמש לא נמצא.'),{status:404});
@@ -198,6 +204,7 @@ export function createMirkamServer(service){
       const resources={conversations:'conversation',contacts:'contact',messages:'message',deliveries:'delivery',versions:'version',tickets:'ticket'};
       const resource=route.match(/^\/api\/(conversations|contacts|messages|deliveries|versions|tickets)(?:\/([a-f0-9-]+)(?:\/(.+))?)?$/);
       if(resource){const [,name,rid,action]=resource,kind=resources[name];
+        if(name==='deliveries'&&rid&&action==='refresh'&&method==='POST')return send({ok:true,item:await service.refreshFax(rid,id,()=>service.identity.authenticate(token))});
         if(method==='GET')return send({ok:true,...(rid?{item:service.store.owned(kind,rid,id)}:{items:service.store.list(kind,id)})});
         if(name==='conversations'&&!rid&&method==='POST')return send({ok:true,item:service.newConversation(id,data.name)});
         if(name==='conversations'&&rid&&action==='chat'&&method==='POST')return send({ok:true,item:await service.chat(rid,id,data.text,data.revision,()=>service.identity.authenticate(token))});

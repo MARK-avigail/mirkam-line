@@ -125,3 +125,15 @@ test('verified payment cannot be replayed onto another membership',t=>{const {se
 
 test('expired membership blocks previously approved mail without losing draft',async t=>{let sends=0;const {service,store}=fixture(t,{supports:()=>true,familyMail:async()=>{sends++;return {status:'accepted_by_mail_server'};}}),u=enroll(service).user,c=service.approveContact(u.id,{name:'test',email:'mail@example.test'},'owner');let m=service.compose(u.id,c.id,'test');m=service.approveMessage(m.id,u.id,true,m.revision);store.put('user',{...store.get('user',u.id),trialUntil:0});await assert.rejects(service.sendMessage(m.id,u.id,m.revision));assert.equal(sends,0);assert.equal(store.get('message',m.id).status,'approved');});
 test('expired membership blocks approved document delivery and retains package',async t=>{let sends=0;const {service,store}=fixture(t,{supports:()=>true,deliver:async()=>{sends++;return {status:'accepted_by_mail_server'};}}),u=enroll(service).user;let {d,dest}=ready(service,u.id);d=service.offer(d.id,u.id,dest.id,'email',d.revision);d=service.approve(d.id,u.id,d.approval.nonce,true,d.revision);store.put('user',{...store.get('user',u.id),trialUntil:0});await assert.rejects(service.send(d.id,u.id,d.revision));assert.equal(sends,0);assert.equal(service.package(d.id,u.id).length,3);});
+
+test('fax pilot enforces approval and preserves draft when destination is outside allowlist',async t=>{
+  let sends=0,checks=0;
+  const {service,store}=fixture(t,{supports:()=>true,validateDelivery:()=>{checks++;throw Error('pilot destination');},deliver:async()=>{sends++;return {status:'accepted_by_fax_provider'};}});
+  const u=enroll(service).user.id;let {d,dest}=ready(service,u);
+  d=service.offer(d.id,u,dest.id,'fax',d.revision);
+  await assert.rejects(service.send(d.id,u,d.revision));assert.equal(checks,0);
+  d=service.approve(d.id,u,d.approval.nonce,true,d.revision);
+  await assert.rejects(service.send(d.id,u,d.revision),/pilot destination/);
+  assert.equal(checks,1);assert.equal(sends,0);assert.equal(store.list('delivery',u).length,0);
+  assert.equal(service.draft(d.id,u).stage,'review');
+});

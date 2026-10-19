@@ -223,7 +223,7 @@ function openContactForm(id){
  adminForm('אישור איש קשר למשתמש שנבחר',[['name','שם איש קשר'],['email','כתובת מייל','email']],async data=>{await api('admin/users/'+id+'/contacts','POST',data,true);await openUser(id,'contacts');});
  button('ביטול וחזרה לתיק המשתמש',()=>openUser(id,'contacts'),$('admin-pane'));
 }
-function mailStatus(value){return ({review:'ממתינה לאישור תוכן ונמען',approved:'מאושרת לשליחה',sending:'בתהליך שליחה',accepted_by_mail_server:'התקבלה אצל שרת המייל — הגעה לתיבה טרם אומתה',delivery_unknown:'מצב השליחה אינו ודאי — יש לבדוק לפני ניסיון נוסף',received:'הודעה שהתקבלה'})[value]||value;}
+function mailStatus(value){return ({review:'ממתינה לאישור תוכן ונמען',approved:'מאושרת לשליחה',sending:'בתהליך שליחה',accepted_by_mail_server:'התקבלה אצל שרת המייל — הגעה לתיבה טרם אומתה',delivery_unknown:'מצב השליחה אינו ודאי — יש לבדוק לפני ניסיון נוסף',received:'הודעה שהתקבלה',accepted_by_fax_provider:'הפקס התקבל אצל הספק — המסירה טרם אושרה',fax_delivered:'ספק הפקס אישר מסירה',fax_failed:'שידור הפקס נכשל — אין שליחה חוזרת אוטומטית'})[value]||value;}
 function composeAdminMail(userId,contacts){
  const p=$('admin-pane');clearCredentials();p.replaceChildren(node('h2','כתיבת הודעה מתוך תיק המשתמש'));
  const available=contacts.filter(c=>c.active&&c.approved);
@@ -243,7 +243,7 @@ async function openUser(id,tab='profile'){
  const r=await api('admin/users/'+id,'GET',undefined,true);selectedUserId=id;enterArea('management');const p=$('admin-pane');p.replaceChildren();backToUsers(p);
  p.append(node('h1',r.user.name),node('p',r.user.prison+' · '+(r.user.active===false?'מושעה':'פעיל')));
  const tabs=node('nav');tabs.className='profile-tabs';tabs.setAttribute('aria-label','תיק משתמש');const content=node('div');content.className='profile-content';
- const labels=[['profile','פרטים'],['drafts','עתירות'],['messages','הודעות'],['conversations','שיחות'],['contacts','אנשי קשר'],['tickets','פניות']];
+ const labels=[['profile','פרטים'],['drafts','עתירות'],['messages','הודעות'],['deliveries','משלוחים'],['conversations','שיחות'],['contacts','אנשי קשר'],['tickets','פניות']];
  const render=key=>{
   clearCredentials();content.replaceChildren();for(const b of tabs.children)b.setAttribute('aria-current',b.datasetTab===key?'page':'false');
   if(key==='profile'){
@@ -255,7 +255,7 @@ async function openUser(id,tab='profile'){
    return;
   }
   const items=r[key]||[];if(!items.length)content.append(node('p','אין פריטים בתיק זה.'));
-  for(const item of items){const card=node('section');card.className='profile-record';card.append(node('h3',item.name||item.answers?.subject||item.status||'פריט'));if(key==='drafts')button('פתיחת העתירה',()=>showAdminDocuments(item.id,id),card);else if(key==='contacts'){const address=node('p',item.email);address.dir='ltr';card.append(address,node('p',item.approved&&item.active?'מאושר ופעיל':'לא פעיל'));}else card.append(node('pre',key==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):item.text||''));if(key==='messages'){card.append(node('p',mailStatus(item.status)));const c=(r.contacts||[]).find(c=>c.id===item.contactId);if(c&&item.direction==='outgoing'&&['review','approved'].includes(item.status))button('פתיחת הודעה לבדיקה',()=>reviewAdminMail(id,item,c),card);}content.append(card);}
+  for(const item of items){const card=node('section');card.className='profile-record';card.append(node('h3',item.name||item.answers?.subject||item.status||'פריט'));if(key==='deliveries'){card.append(node('p',mailStatus(item.status)),node('p','אישור מסירת פקס אינו אישור קליטת מסמך בבית המשפט.'));if(item.channel==='fax'&&item.receipt?.provider==='interfax'&&item.receipt.providerId)button('בדיקת מצב הפקס',async()=>{await api('admin/users/'+id+'/deliveries/'+item.id+'/refresh','POST',{},true);await openUser(id,'deliveries');},card);}else if(key==='drafts')button('פתיחת העתירה',()=>showAdminDocuments(item.id,id),card);else if(key==='contacts'){const address=node('p',item.email);address.dir='ltr';card.append(address,node('p',item.approved&&item.active?'מאושר ופעיל':'לא פעיל'));}else card.append(node('pre',key==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):item.text||''));if(key==='messages'){card.append(node('p',mailStatus(item.status)));const c=(r.contacts||[]).find(c=>c.id===item.contactId);if(c&&item.direction==='outgoing'&&['review','approved'].includes(item.status))button('פתיחת הודעה לבדיקה',()=>reviewAdminMail(id,item,c),card);}content.append(card);}
   if(key==='messages'&&adminRole==='owner')button('כתיבת הודעה',()=>composeAdminMail(id,r.contacts||[]),content);
   if(key==='contacts')button('הוספת איש קשר ואישורו',()=>openContactForm(id),content);
  };
