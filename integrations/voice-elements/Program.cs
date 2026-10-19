@@ -22,7 +22,7 @@ internal static class Program
             var assembly = typeof(VoiceResource).Assembly;
             Console.WriteLine("STREAMING_API_SDK=" + assembly.GetName().Version);
             var count = 0;
-            foreach (var type in assembly.GetExportedTypes().OrderBy(t => t.FullName))
+            foreach (var type in new[] { assembly, typeof(VoiceElements.Common.Codec).Assembly, typeof(VoiceElements.Interface.RtpType).Assembly }.Distinct().SelectMany(a => a.GetExportedTypes()).OrderBy(t => t.FullName))
             {
                 foreach (var member in type.GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly))
                 {
@@ -31,6 +31,7 @@ internal static class Program
                     if (member is System.Reflection.MethodInfo accessor && accessor.IsSpecialName) continue;
                     if (++count > 600) { Console.WriteLine("STREAMING_API_TRUNCATED"); return 0; }
                     Console.WriteLine(type.FullName + " :: " + member.ToString());
+                    if (member is System.Reflection.MethodBase method) Console.WriteLine("PARAMETERS " + type.Name + "." + method.Name + " " + string.Join(", ", method.GetParameters().Select(p => p.Name + ":" + p.ParameterType.Name)));
                 }
             }
             Console.WriteLine("STREAMING_API_MEMBERS=" + count);
