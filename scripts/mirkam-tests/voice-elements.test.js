@@ -125,3 +125,15 @@ test('successful login greets the authenticated user once inside the interruptib
  const first=await step(server);assert.match(first.text,/<Gather[^>]*><Say[^>]*>שלום שם, מה שלומך/);assert.match(first.text,/הקודים אינם מוקלטים/);
  const next=await step(server);assert.doesNotMatch(next.text,/מה שלומך/);
 });
+test('Live listening trial is owner-only and cannot accept a different voice or session target',async t=>{
+ const {server,service}=fixture(t);let creates=0,closes=0;
+ const sdp='v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n';
+ service.providers.liveVoice={create:async value=>{creates++;assert.equal(value,sdp);return {session:{id:'live_test'},transport:{type:'webrtc',sdp}};},close:async id=>{assert.equal(id,'live_test');closes++;}};
+ const member=service.staff.create('support','support','owner'),login=service.staff.login(member.id,member.password),url='/api/admin/live-voice';
+ for(const token of [undefined,login.token])assert.notEqual((await request(server,url,{method:'POST',token,body:{sdp}})).status,201);
+ assert.equal(creates,0);
+ const result=await request(server,url,{method:'POST',token:admin,body:{sdp,voice:'attacker',instructions:'send mail'}});
+ assert.equal(result.status,201);assert.equal(result.body.voice,'voice_6ad601faaa188191aa00d6384fc09ca8');assert.equal(creates,1);
+ assert.equal((await request(server,url,{method:'POST',token:admin,body:{sdp}})).status,409);
+ assert.equal((await request(server,url,{method:'DELETE',token:admin,body:{id:'foreign'}})).status,200);assert.equal(closes,1);
+});

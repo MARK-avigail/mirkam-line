@@ -10,6 +10,7 @@ import { renderPdf,renderDocx } from '../documents.js';
 import { createVoice } from './voice.js';
 import { createVoiceElements } from './voice-elements.js';
 import { permitted } from './staff.js';
+import { createLivePreview,liveVoiceProvider } from './live-voice.js';
 
 const publicDir=fileURLToPath(new URL('../../public/mirkam/',import.meta.url));
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);};
@@ -23,6 +24,8 @@ export function createMirkamServer(service){
   const voice=createVoice(service),voiceElements=createVoiceElements(service);
   const lineBusy=new Set();
   const voiceSamples=new Map();let sampleBusy=false,sampleAttempts=0,sampleWindow=0;
+  const liveProvider=liveVoiceProvider();
+  const livePreview=createLivePreview({create:sdp=>(service.providers.liveVoice||liveProvider).create(sdp),close:id=>(service.providers.liveVoice||liveProvider).close(id)});
   const server=http.createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'");
     const send=(data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
@@ -43,6 +46,16 @@ export function createMirkamServer(service){
         const auth=staff(req,service),actor=auth.actor,suffix=route.slice(11);
         if(!permitted(auth.role,suffix))return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
         if(suffix==='session'&&method==='POST')return send({ok:true});
+        if(suffix==='live-voice'){
+          if(auth.role!=='owner')return send({ok:false,error:'נדרשת הרשאת בעלת המערכת.'},403);
+          if(method==='GET')return send({ok:true,...livePreview.status(actor)});
+          if(method==='DELETE'){await livePreview.stop(actor);return send({ok:true});}
+          if(method==='POST'){
+            const result=await livePreview.start(actor,data.sdp,()=>{const current=staff(req,service);if(current.role!=='owner'||current.actor!==actor)throw Object.assign(Error('נדרשת כניסה מחדש.'),{status:403});});
+            return send({ok:true,...result},201);
+          }
+          return send({ok:false},405);
+        }
         if(suffix==='voice-sample'&&method==='POST'){
           if(auth.role!=='owner')return send({ok:false,error:'נדרשת הרשאת בעלת המערכת.'},403);
           const choice=data.voice;
@@ -200,6 +213,6 @@ export function createMirkamServer(service){
       return send({ok:false,error:'לא נמצא.'},404);
     }catch(e){if(!res.headersSent)send({ok:false,error:e.message},e.status||400);else res.end();}
   });
-  server.on('close',()=>voiceElements.close());
+  server.on('close',()=>{voiceElements.close();livePreview.dispose().catch(()=>console.error('LIVE_PREVIEW_CLOSE_UNCONFIRMED'));});
   return server;
 }
