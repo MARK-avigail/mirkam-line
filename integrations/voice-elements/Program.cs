@@ -27,8 +27,9 @@ internal static class Program
                 foreach (var member in type.GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly))
                 {
                     var name = type.Name + "." + member.Name;
-                    if (!new[] { "Stream", "WebSocket", "Pipeline", "Nexus", "AudioData", "MediaData" }.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase))) continue;
-                    if (++count > 120) { Console.WriteLine("STREAMING_API_TRUNCATED"); return 0; }
+                    if (type != typeof(VoiceResource) && type != typeof(SipChannel) && type != typeof(ChannelResource) && !new[] { "Stream", "WebSocket", "Pipeline", "Nexus", "AudioData", "MediaData" }.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase))) continue;
+                    if (member is System.Reflection.MethodInfo accessor && accessor.IsSpecialName) continue;
+                    if (++count > 350) { Console.WriteLine("STREAMING_API_TRUNCATED"); return 0; }
                     Console.WriteLine(type.FullName + " :: " + member.ToString());
                 }
             }
