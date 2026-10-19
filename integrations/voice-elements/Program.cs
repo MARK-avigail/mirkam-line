@@ -61,6 +61,12 @@ internal static class Program
             for (var depth = 0; current != null && depth < 5; depth++, current = current.InnerException)
             {
                 Console.Error.WriteLine($"CAUSE depth={depth} type={current.GetType().FullName} hresult=0x{current.HResult:X8}");
+                // Method names only: omit argument values, exception messages and file paths.
+                foreach (var frame in (new StackTrace(current, false).GetFrames() ?? Array.Empty<StackFrame>()).Take(6))
+                {
+                    var method = frame.GetMethod();
+                    if (method != null) Console.Error.WriteLine($"FRAME={method.DeclaringType?.FullName}.{method.Name}");
+                }
                 if (current is HttpRequestException http && http.StatusCode is { } status)
                     Console.Error.WriteLine($"HTTP_STATUS={(int)status}");
                 if (current is System.Net.Sockets.SocketException socket)
