@@ -51,3 +51,8 @@ cd apps/native/android
 ## תוצאת Windows מאומתת — 19 באוקטובר
 
 בריצה https://github.com/MARK-avigail/mirkam-line/actions/runs/39274303296 משימת Windows הסתיימה בהצלחה: נבנה מתקין 0.4.0, תוכנת Electron מתוך win-unpacked הופעלה ב־Windows, מסך הבית המקומי נטען ובדיקת העדכון החתום עברה. תוצאה: https://github.com/MARK-avigail/mirkam-line/actions/runs/39274303296/artifacts/12197635308 . אין חתימת הפצה מסחרית למתקין. לא בוצעה התקנת NSIS או כניסה חיה במחשב המשתמשת.
+
+## מתקין מעודכן — אבחון שיחות ופקס
+ריצה 39287508356 נבנתה בהצלחה עבור cf9de86, כולל Windows ו־Android. מתקין הניסיון ל־Windows עם עדכוני הממשק:
+https://github.com/MARK-avigail/mirkam-line/actions/runs/39287508356/artifacts/12204336260
+זהו ZIP תוצרי הבנייה, לא אתר היישום. התקנתו במחשב המשתמשת טרם נבדקה. חיבור לשרת ולפעולות החדשות דורש גם פריסה תואמת בשרת. דרישות Windows 10/11 וסטטוס חתימת המתקין לא השתנו. אין לפרסם את APK ה־release הלא חתום כיישום Android מוכן להפצה.
