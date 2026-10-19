@@ -102,17 +102,40 @@ internal static class Program
         var path = "/voice-elements/step";
         var fields = new Dictionary<string, string> { ["CallSid"] = callId };
         var sequence = 0;
+        var stage = "answer";
+        var endReason = "loop-limit";
+        var elapsed = Stopwatch.StartNew();
         void Say(string text)
         {
+            // Split long answers to reduce peak WAV size and synthesis latency.
+            while (text.Length > 0)
+            {
+                if (disconnected || DateTime.UtcNow >= deadline) return;
+                var length = Math.Min(text.Length, 900);
+                if (length < text.Length)
+                {
+                    var boundary = text.LastIndexOf(' ', length - 1, length);
+                    if (boundary > 450) length = boundary;
+                }
+                SayPart(text.Substring(0, length));
+                text = text.Substring(length).TrimStart();
+                if (disconnected) return;
+            }
+        }
+        void SayPart(string text)
+        {
+            stage = "speech-generate";
             var wav = Post("/voice-elements/speech", Json(new { callId, text }));
             var raw = Path.Combine(folder, "tts-input.wav");
             var playable = Path.Combine(folder, "tts-" + (++sequence) + ".wav");
             File.WriteAllBytes(raw, wav);
             var start = new ProcessStartInfo("ffmpeg") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
             foreach (var arg in new[] { "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", raw, "-ar", "8000", "-ac", "1", "-c:a", "pcm_s16le", playable }) start.ArgumentList.Add(arg);
+            stage = "speech-convert";
             using var process = Process.Start(start) ?? throw new Exception("Audio converter unavailable");
             if (!process.WaitForExit(10000)) { process.Kill(); throw new Exception("Audio conversion timed out"); }
             if (process.ExitCode != 0) throw new Exception("Audio conversion failed");
+            stage = "speech-play";
             try { voice.MaximumTime = 180; if (!disconnected) voice.Play(playable); }
             finally { File.Delete(raw); File.Delete(playable); }
         }
@@ -121,6 +144,7 @@ internal static class Program
             channel.Answer();
             for (var hop = 0; hop < 600 && !disconnected && DateTime.UtcNow < deadline; hop++)
             {
+                stage = "workflow";
                 var xml = Encoding.UTF8.GetString(Post(path, new FormUrlEncodedContent(fields)));
                 fields = new Dictionary<string, string> { ["CallSid"] = callId };
                 using var reader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 100000 });
@@ -129,12 +153,12 @@ internal static class Program
                 var next = false;
                 foreach (var command in root.Elements())
                 {
-                    if (disconnected || DateTime.UtcNow >= deadline) return;
+                    if (disconnected || DateTime.UtcNow >= deadline) { endReason = disconnected ? "remote-disconnect" : "duration-limit"; return; }
                     switch (command.Name.LocalName)
                     {
                         case "Say": voice.ClearDigitBuffer = true; Say(command.Value); break;
                         case "Pause": Thread.Sleep(Math.Clamp((int?)command.Attribute("length") ?? 1, 1, 5) * 1000); break;
-                        case "Hangup": return;
+                        case "Hangup": endReason = "workflow-hangup"; return;
                         case "Redirect": path = Target(command.Value.Trim()); next = true; break;
                         case "Gather":
                             voice.MaximumDigits = Math.Clamp((int?)command.Attribute("numDigits") ?? 1, 1, 6);
@@ -144,6 +168,7 @@ internal static class Program
                             foreach (var say in command.Elements("Say")) { Say(say.Value); voice.ClearDigitBuffer = false; }
                             voice.ClearDigitBuffer = false;
                             voice.MaximumTime = inputTimeout;
+                            stage = "collect-digits";
                             voice.GetDigits();
                             var digits = voice.DigitBuffer;
                             voice.ClearDigitBuffer = true;
@@ -157,10 +182,12 @@ internal static class Program
                             voice.TerminationDigits = "#";
                             voice.MaximumTime = Math.Clamp((int?)command.Attribute("maxLength") ?? 180, 1, 180);
                             voice.PlayTone(1000, 100, 500);
+                            stage = "record";
                             voice.Record(filename);
                             try
                             {
                                 if (disconnected) return;
+                                stage = "record-upload";
                                 var audio = File.ReadAllBytes(filename);
                                 if (audio.Length > 6 * 1024 * 1024) throw new Exception("Recording too large");
                                 using var result = JsonDocument.Parse(Post("/voice-elements/record" + nonce + "&call=" + callId, new ByteArrayContent(audio)));
@@ -174,9 +201,22 @@ internal static class Program
                     }
                     if (next) break;
                 }
-                if (!next) return;
+                if (!next) { endReason = "no-next-instruction"; return; }
             }
         }
-        finally { try { Post("/voice-elements/end", Json(new { callId })); } catch { Console.WriteLine("CALL_END_CALLBACK_FAILED"); } Directory.Delete(folder, true); }
+        catch (Exception error)
+        {
+            endReason = "error";
+            Console.Error.WriteLine($"CALL_ERROR stage={stage} type={error.GetType().FullName} hresult=0x{error.HResult:X8}");
+            if (error is HttpRequestException http && http.StatusCode is { } status)
+                Console.Error.WriteLine($"CALL_HTTP_STATUS={(int)status}");
+            // Never include caller input, credentials, exception messages or recording paths.
+        }
+        finally
+        {
+            Console.WriteLine($"CALL_END reason={(disconnected ? "remote-disconnect" : DateTime.UtcNow >= deadline ? "duration-limit" : endReason)} stage={stage} seconds={(int)elapsed.Elapsed.TotalSeconds}");
+            try { Post("/voice-elements/end", Json(new { callId })); } catch { Console.WriteLine("CALL_END_CALLBACK_FAILED"); }
+            Directory.Delete(folder, true);
+        }
     }
 }
