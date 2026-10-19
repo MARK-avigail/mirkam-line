@@ -79,3 +79,29 @@ test('readiness reports protocol compatibility, never a verified live call',asyn
  const r=await request(server,'/voice-elements/ready',{method:'POST',body:{},headers:{authorization:'Bearer '+secret}});
  assert.deepEqual(r.body,{ok:true,protocol:1,liveVerified:false});assert.equal(store.list('call').length,0);
 });
+
+test('login gives 30 seconds, retries incomplete PIN without locking and explains idle exit',async t=>{
+ const {server,service,store}=fixture(t),u=enroll(service);
+ let r=await step(server);assert.match(r.text,/timeout="30"/);
+ let c=store.get('call',id);await step(server,{Digits:u.user.code},'?input='+c.inputNonce);
+ c=store.get('call',id);r=await step(server,{Digits:'12'},'?input='+c.inputNonce);
+ assert.match(r.text,/לא התקבל קוד מלא/);assert.equal(store.list('failure').length,0);assert.equal(store.get('call',id).phase,'login-pin');
+ for(let n=0;n<6;n++)r=await step(server);
+ assert.match(r.text,/<Hangup/);assert.match(r.text,/כשהקודים מוכנים/);assert.doesNotMatch(r.text,/העבודה שאושרה נשמרה/);
+});
+test('voice test account is idempotent, can log in, and cannot send externally',async t=>{
+ const {createVoiceTestUser}=await import('../create-voice-test-user.mjs');
+ const {store,service}=fixture(t),first=createVoiceTestUser(store),second=createVoiceTestUser(store);
+ assert.equal(second.user.id,first.user.id);assert.equal(second.pin,undefined);assert.equal(first.user.verifiedAt,null);
+ assert.equal(service.identity.login(first.user.code,first.pin).user.id,first.user.id);
+ await assert.rejects(service.send('missing',first.user.id),/חשבון בדיקה/);
+ await assert.rejects(service.sendMessage('missing',first.user.id),/חשבון בדיקה/);
+});
+test('speech sends the selected warm voice and Hebrew delivery instructions',async t=>{
+ const {liveProviders}=await import('../../src/mirkam/providers.js');
+ const oldFetch=globalThis.fetch,oldKey=process.env.OPENAI_API_KEY;
+ process.env.OPENAI_API_KEY='test-only';
+ t.after(()=>{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldKey;});
+ globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.openai.com/v1/audio/speech');const body=JSON.parse(options.body);assert.equal(body.model,'gpt-4o-mini-tts');assert.equal(body.voice,'coral');assert.match(body.instructions,/Israeli Hebrew/);assert.equal(body.input,'שלום');return new Response(wav(),{status:200});};
+ assert.deepEqual(await liveProviders().speak('שלום'),wav());
+});

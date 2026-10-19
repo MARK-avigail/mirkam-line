@@ -113,7 +113,7 @@ internal static class Program
             using var process = Process.Start(start) ?? throw new Exception("Audio converter unavailable");
             if (!process.WaitForExit(10000)) { process.Kill(); throw new Exception("Audio conversion timed out"); }
             if (process.ExitCode != 0) throw new Exception("Audio conversion failed");
-            try { if (!disconnected) voice.Play(playable); }
+            try { voice.MaximumTime = 180; if (!disconnected) voice.Play(playable); }
             finally { File.Delete(raw); File.Delete(playable); }
         }
         try
@@ -138,11 +138,12 @@ internal static class Program
                         case "Redirect": path = Target(command.Value.Trim()); next = true; break;
                         case "Gather":
                             voice.MaximumDigits = Math.Clamp((int?)command.Attribute("numDigits") ?? 1, 1, 6);
-                            voice.MaximumTime = Math.Clamp((int?)command.Attribute("timeout") ?? 8, 1, 15);
+                            var inputTimeout = Math.Clamp((int?)command.Attribute("timeout") ?? 12, 1, 60);
                             voice.TerminationDigits = (string?)command.Attribute("finishOnKey") ?? "#";
                             voice.ClearDigitBuffer = true;
                             foreach (var say in command.Elements("Say")) { Say(say.Value); voice.ClearDigitBuffer = false; }
                             voice.ClearDigitBuffer = false;
+                            voice.MaximumTime = inputTimeout;
                             voice.GetDigits();
                             var digits = voice.DigitBuffer;
                             voice.ClearDigitBuffer = true;

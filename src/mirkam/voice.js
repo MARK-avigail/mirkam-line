@@ -5,7 +5,7 @@ import { transcribeTwilio } from '../ivr/stt.js';
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 const say=s=>`<Say language="he-IL" voice="${escape(process.env.TWILIO_TTS_VOICE||'Google.he-IL-Standard-A')}">${escape(s)}</Say>`;
 const redirect=()=>'<Redirect method="POST">/voice/step</Redirect>';
-const gatherXml=(text,digits=1)=>`<Gather numDigits="${digits}" finishOnKey="#" action="/voice/step" method="POST" timeout="8">${say(text)}</Gather>${redirect()}`;
+const gatherXml=(text,digits=1)=>`<Gather numDigits="${digits}" finishOnKey="#" action="/voice/step" method="POST" timeout="${digits===6?30:12}">${say(text)}</Gather>${redirect()}`;
 export function validVoiceSignature(url,body,signature,secret){if(!secret||typeof signature!=='string')return false;const text=url+Object.keys(body).sort().map(k=>k+body[k]).join(''),expected=createHmac('sha1',secret).update(text).digest('base64');const a=Buffer.from(expected),b=Buffer.from(signature);return a.length===b.length&&timingSafeEqual(a,b);}
 export function createVoice(service,transport={}){
   const transcribe=transport.transcribe||transcribeTwilio;
@@ -52,13 +52,13 @@ export function createVoice(service,transport={}){
       if(digit)c=save({...c,inputNonce:null});if(data.RecordingUrl)c=save({...c,recordNonce:null});
       if(!digit&&!data.RecordingUrl&&c.phase!=='processing')c.silence++;
       else if(digit||data.RecordingUrl)c.silence=0;
-      if(c.silence>5){out=say('לא התקבל קלט. העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
+      if(c.silence>5){out=say(c.phase.startsWith('login-')?'לא התקבלה הקשה במשך כמה ניסיונות. נסיים עכשיו, ואפשר להתקשר שוב כשהקודים מוכנים.':'לא התקבל קלט. העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
       else if(c.phase==='login-code'){
         if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('הקישו את הקוד האישי בן שש הספרות. קוד זה אינו מוקלט.',6);}
-        else out=gather('ברוכים הבאים למרקם ליין. כאן תוכלו לכתוב, לשלוח ולקבל עזרה, בקצב שלכם. תמלולים והקלטות מילוי נשמרים בהתאם למדיניות השירות לצורך המשך העבודה. הקוד האישי אינו מוקלט. נא הקישו את קוד המשתמש בן שש הספרות.',6);
+        else out=gather('שלום, הגעתם למרקם ליין, שירות עם עוזר בינה מלאכותית. אנחנו כאן לעזור, בקצב שלכם. תמלולים והקלטות מילוי נשמרים בהתאם למדיניות השירות לצורך המשך העבודה. הקוד האישי אינו מוקלט. נא הקישו את קוד המשתמש בן שש הספרות.',6);
       }else if(c.phase==='login-pin'){
         if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main'});out=redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
-        else out=gather('הקישו את הקוד האישי בן שש הספרות.',6);
+        else out=gather('לא התקבל קוד מלא. זה בסדר, אפשר לנסות שוב בנחת. הקישו את כל שש הספרות של הקוד האישי. יש לכם שלושים שניות.',6);
       }else{
         let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id,token=c.token,validate=()=>service.identity.authenticate(token);
         if(['delivery-channel','delivery-confirm'].includes(c.phase)&&(c.reviewCompleted!==true||c.reviewHash!==reviewHash(c.draftId,uid))){c=save({...c,phase:'draft',reviewHash:null,reviewCompleted:false,reviewIndex:0});digit='';}

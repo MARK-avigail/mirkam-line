@@ -13,13 +13,13 @@ export function totp(secret, now=Date.now()) {
 }
 export class Identity {
   constructor(store){this.store=store;}
-  register(data,actor) {
+  register(data,actor,{testAccount=false}={}) {
     return this.store.atomic(()=>{
     const identity=clean(data.identity,9);if(!/^\d{9}$/.test(identity))throw Error('מספר זהות צריך להכיל תשע ספרות.');
     if(this.store.list('user').some(u=>u.identity===identity))throw Error('כבר קיים חשבון למספר זהות זה.');
     const users=this.store.list('user');let code;do{code=String(randomInt(1000000)).padStart(6,'0');}while(users.some(u=>u.code===code));
     const pin=String(randomInt(1000000)).padStart(6,'0'),pinSalt=randomBytes(16).toString('hex');
-    const user=this.store.create('user','users',{code,name:clean(data.name),identity,prisonerNumber:clean(data.prisonerNumber),prison:clean(data.prison),wing:String(data.wing||'').slice(0,100),verifiedBy:clean(actor),verifiedAt:Date.now(),active:true,pinSalt,pinHash:hashPin(pin,pinSalt),trialUntil:Date.now()+14*86400000,membership:data.freeMembership===true?'free':'trial',renewalConsent:false,priceAgorot:4990});
+    const user=this.store.create('user','users',{code,name:clean(data.name),identity,prisonerNumber:clean(data.prisonerNumber),prison:clean(data.prison),wing:String(data.wing||'').slice(0,100),verifiedBy:clean(actor),verifiedAt:Date.now(),active:true,pinSalt,pinHash:hashPin(pin,pinSalt),trialUntil:Date.now()+14*86400000,membership:data.freeMembership===true?'free':'trial',renewalConsent:false,priceAgorot:4990,...(testAccount?{testAccount:true,testPurpose:'voice-acceptance',verifiedAt:null}:{})});
     this.store.audit(actor,'user.enrolled',user.id);return {user:safeUser(user),pin};
     });
   }
