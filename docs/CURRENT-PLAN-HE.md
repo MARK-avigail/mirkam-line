@@ -127,3 +127,8 @@
 86 בדיקות מקומיות עברו: 19 gateway, 20 deep audit, 5 critical failures, 42 HTTP. אינן שיחה חיה ואינן אישור התקנה. הקוד מגדיר תקרת שיחה של 20 דקות וכניסה של שעה; אין ראיה שמסבירה את ניתוק הספק/הקו אחרי 303 שניות. קול מותאם בטלפון עדיין חסום באינטגרציה; אין להציג את תיקוני המצב כפתרון לניתוק או לאיכות הקול.
 
 מרכזייה: Panasonic KX-TDA100 נזכרה במסמכי הפרויקט. כרטיסים מותקנים, gateway וניתוב SIP פעיל לא אומתו. אין לחבר דרך מסלול מומצא או לרכוש ציוד לפני אימות הממשק הקיים. המטרה נותרה תוכנת ניהול במחשב לצד שירות טלפוני.
+
+## תיקון הקשות ואבחון הניתוק — המשך 19 באוקטובר
+בגשר תוקנה בדיקת קוד סיום ההשמעה: TerminationCode הוא flags ולא ערך טקסט יחיד. שילוב Digit עם EndOfData או MaximumDTMF כבר אינו מחמיץ את עצירת ההקראה. Gather עם כמה Say נעצר אחרי הראשון שהופסק בהקשה. נוסף InterDigitTimeout מפורש של עד 30 שניות בהזנת שש ספרות, בהתאם לזמן הכולל; שינוי MaximumTime לבדו לא קבע את זמן ההמתנה בין ספרות.
+נוספה בדיקת C# ללא ספק (13 מקרים) לבנייה ב־CI. בניית הגרסה החדשה עדיין בהמתנה. נוסף אבחון קריאה בלבד של DropTime ושל GeneralCause/GcCause/DropError, ללא מספרי טלפון, קודים אישיים או הודעות SDK. האבחון נדרש כדי לברר ניתוק ב־303 שניות; אין עדיין סיבה מאומתת ואין שינוי במגבלות החשבון של הספק.
+מקורות: https://help.voiceelements.com/html/T_VoiceElements_Common_TerminationCode.htm ; https://help.voiceelements.com/html/T_VoiceElements_Client_VoiceResource.htm ; https://help.voiceelements.com/html/P_VoiceElements_Client_ChannelResource_DropTime.htm

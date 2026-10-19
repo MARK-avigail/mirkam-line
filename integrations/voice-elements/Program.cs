@@ -55,6 +55,7 @@ internal static class Program
             Console.WriteLine("STREAMING_API_MEMBERS=" + count);
             return 0;
         }
+        if (args.Length == 1 && args[0] == "--input-self-test") return VoiceInputPolicy.SelfTest();
         var stage = "environment";
         try
         {
@@ -144,22 +145,23 @@ internal static class Program
         var stage = "answer";
         var endReason = "loop-limit";
         var elapsed = Stopwatch.StartNew();
-        void Say(string text, bool interruptible = false)
+        bool Say(string text, bool interruptible = false)
         {
             // Split long answers to reduce peak WAV size and synthesis latency.
             while (text.Length > 0)
             {
-                if (disconnected || DateTime.UtcNow >= deadline) return;
+                if (disconnected || DateTime.UtcNow >= deadline) return false;
                 var length = Math.Min(text.Length, 900);
                 if (length < text.Length)
                 {
                     var boundary = text.LastIndexOf(' ', length - 1, length);
                     if (boundary > 450) length = boundary;
                 }
-                if (SayPart(text.Substring(0, length)) && interruptible) return;
+                if (SayPart(text.Substring(0, length)) && interruptible) return true;
                 text = text.Substring(length).TrimStart();
-                if (disconnected) return;
+                if (disconnected) return false;
             }
+            return false;
         }
         bool SayPart(string text)
         {
@@ -175,12 +177,19 @@ internal static class Program
             if (!process.WaitForExit(10000)) { process.Kill(); throw new Exception("Audio conversion timed out"); }
             if (process.ExitCode != 0) throw new Exception("Audio conversion failed");
             stage = "speech-play";
-            try { voice.MaximumTime = 180; if (disconnected) return false; var result = voice.Play(playable).ToString(); voice.ClearDigitBuffer = false; return result == "Digit" || result == "MaximumDTMF"; }
+            try { voice.MaximumTime = 180; if (disconnected) return false; var result = voice.Play(playable); voice.ClearDigitBuffer = false; return VoiceInputPolicy.IsDigitInterruption(result); }
             finally { File.Delete(raw); File.Delete(playable); }
         }
         try
         {
             channel.Answer();
+            // Read-only diagnostics: never extend a provider/account time limit here.
+            try
+            {
+                var remaining = (channel.DropTime - DateTime.UtcNow).TotalSeconds;
+                Console.WriteLine($"CALL_TIMER scheduled_drop_seconds={(remaining > 0 && remaining < 86400 ? (int)remaining : -1)} app_limit_seconds=1200");
+            }
+            catch { Console.WriteLine("CALL_TIMER unavailable"); }
             voice.WipeDigitBuffer();
             voice.ClearDigitBuffer = false;
             for (var hop = 0; hop < 600 && !disconnected && DateTime.UtcNow < deadline; hop++)
@@ -208,11 +217,13 @@ internal static class Program
                             voice.ClearDigitBuffer = false;
                             voice.MaximumDigits = 1;
                             voice.TerminationDigits = "ANY";
-                            foreach (var say in command.Elements("Say")) { Say(say.Value, true); }
+                            foreach (var say in command.Elements("Say")) { if (Say(say.Value, true)) break; }
                             voice.ClearDigitBuffer = false;
                             voice.MaximumDigits = requestedDigits;
                             voice.TerminationDigits = (string?)command.Attribute("finishOnKey") ?? "#";
                             voice.MaximumTime = inputTimeout;
+                            voice.InterDigitTimeout = VoiceInputPolicy.InterDigitSeconds(requestedDigits, inputTimeout);
+                            voice.InterDigitTimeoutStartsAfterFirstDigit = true;
                             stage = "collect-digits";
                             voice.GetDigits();
                             var digits = voice.DigitBuffer;
@@ -259,6 +270,8 @@ internal static class Program
         }
         finally
         {
+            try { Console.WriteLine($"CALL_DISCONNECT general_cause={Convert.ToInt32(channel.GeneralCause)} gc_cause={Convert.ToInt32(channel.GcCause)} drop_error={Convert.ToInt32(channel.DropError)}"); }
+            catch { Console.WriteLine("CALL_DISCONNECT codes_unavailable"); }
             Console.WriteLine($"CALL_END reason={(disconnected ? "remote-disconnect" : DateTime.UtcNow >= deadline ? "duration-limit" : endReason)} stage={stage} seconds={(int)elapsed.Elapsed.TotalSeconds}");
             try { Post("/voice-elements/end", Json(new { callId })); } catch { Console.WriteLine("CALL_END_CALLBACK_FAILED"); }
             Directory.Delete(folder, true);
