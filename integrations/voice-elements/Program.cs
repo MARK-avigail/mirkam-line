@@ -16,13 +16,31 @@ internal static class Program
     static string Required(string key) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } v ? v : throw new Exception("Missing setting: " + key);
     static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--streaming-platform-check")
+        {
+            // Isolated native dependency probe. No settings, ports or provider calls.
+            var streams = typeof(VoiceElements.Client.Streams.MediaProcessor).Assembly;
+            var application = streams.GetType("VoiceElements.Client.Streams.StreamingApplication", true)!;
+            var method = application.GetMethod("QueryPerformanceFrequency", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
+            try
+            {
+                method.Invoke(null, new object[] { 0L });
+                Console.WriteLine("STREAMING_NATIVE_TIMER_AVAILABLE: not proof of provider or audio connectivity");
+            }
+            catch (System.Reflection.TargetInvocationException error) when (error.InnerException is DllNotFoundException)
+            {
+                Console.WriteLine("STREAMING_NATIVE_TIMER_UNAVAILABLE: SDK streaming requires Windows native libraries; no provider call attempted");
+                return OperatingSystem.IsLinux() ? 0 : 1;
+            }
+            return 0;
+        }
         if (args.Length == 1 && args[0] == "--streaming-api")
         {
             // Reflection only: no provider connection, settings or credential reads.
             var assembly = typeof(VoiceResource).Assembly;
             Console.WriteLine("STREAMING_API_SDK=" + assembly.GetName().Version);
             var count = 0;
-            foreach (var type in new[] { assembly, typeof(VoiceElements.Common.Codec).Assembly, typeof(VoiceElements.Interface.RtpType).Assembly }.Distinct().SelectMany(a => a.GetExportedTypes()).OrderBy(t => t.FullName))
+            foreach (var type in new[] { assembly, typeof(VoiceElements.Common.Codec).Assembly, typeof(VoiceElements.Interface.RtpType).Assembly, typeof(VoiceElements.Client.Streams.MediaProcessor).Assembly }.Distinct().SelectMany(a => a.GetExportedTypes()).OrderBy(t => t.FullName))
             {
                 foreach (var member in type.GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly))
                 {

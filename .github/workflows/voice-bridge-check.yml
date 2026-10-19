@@ -21,24 +21,5 @@ jobs:
         run: dotnet publish integrations/voice-elements/Bridge.csproj -c Release -o /tmp/mirkam-bridge
       - name: Inspect public streaming API without credentials or calls
         run: dotnet /tmp/mirkam-bridge/Bridge.dll --streaming-api
-      - name: Inspect SDK streaming implementation without provider access
-        run: |
-          dotnet tool install ilspycmd --tool-path /tmp/inspect-tools --version 9.1.0.7988
-          find /tmp/mirkam-bridge -maxdepth 1 -name '*VoiceElements*.dll' -print
-          for sdk in /tmp/mirkam-bridge/*VoiceElements*.dll; do
-            /tmp/inspect-tools/ilspycmd -l c "$sdk" | grep -Ei 'media|stream|bot|websocket|processor' || true
-          done
-          /tmp/inspect-tools/ilspycmd -t VoiceElements.Client.VoiceResource /tmp/mirkam-bridge/VoiceElementsClient.dll > /tmp/voice-resource.cs
-          python3 - <<'PY'
-          import re
-          source = open('/tmp/voice-resource.cs').read().splitlines()
-          selected = set()
-          for i, line in enumerate(source):
-              if re.search(r'BotEngage|SetMonitorStream|StreamMonitorStream|MediaProcessor|WebSocket', line):
-                  selected.update(range(max(0, i-3), min(len(source), i+65)))
-          for i in sorted(selected):
-              print(f'{i+1}: {source[i]}')
-          PY
-          for type in StreamingApplication StreamingServer MediaProcessor StreamEventArgs; do
-            /tmp/inspect-tools/ilspycmd -t "VoiceElements.Client.Streams.$type" /tmp/mirkam-bridge/VoiceElementsClientStreams.dll
-          done
+      - name: Check native streaming dependency on Linux without calls
+        run: dotnet /tmp/mirkam-bridge/Bridge.dll --streaming-platform-check
