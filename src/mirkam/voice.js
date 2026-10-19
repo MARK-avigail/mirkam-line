@@ -54,8 +54,8 @@ export function createVoice(service,transport={}){
       else if(digit||data.RecordingUrl)c.silence=0;
       if(c.silence>5){out=say(c.phase.startsWith('login-')?'לא התקבלה הקשה במשך כמה ניסיונות. נסיים עכשיו, ואפשר להתקשר שוב כשהקודים מוכנים.':'לא התקבל קלט. העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
       else if(c.phase==='login-code'){
-        if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('הקישו את הקוד האישי בן שש הספרות. קוד זה אינו מוקלט.',6);}
-        else out=gather('שלום, הגעתם למרקם ליין, שירות עם עוזר בינה מלאכותית. אנחנו כאן לעזור, בקצב שלכם. תמלולים והקלטות מילוי נשמרים בהתאם למדיניות השירות לצורך המשך העבודה. הקוד האישי אינו מוקלט. נא הקישו את קוד המשתמש בן שש הספרות.',6);
+        if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('עכשיו הקישו את הקוד האישי, שש ספרות.',6);}
+        else out=gather(c.silence>1||digit?'ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות.':'שלום, הגעתם למרקם ליין, עם עוזר בינה מלאכותית. תמלולים והקלטות מילוי נשמרים להמשך העבודה לפי מדיניות השירות. הקודים אינם מוקלטים. הקישו את קוד המשתמש, שש ספרות.',6);
       }else if(c.phase==='login-pin'){
         if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main'});out=redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
         else out=gather('לא התקבל קוד מלא. זה בסדר, אפשר לנסות שוב בנחת. הקישו את כל שש הספרות של הקוד האישי. יש לכם שלושים שניות.',6);
@@ -150,13 +150,13 @@ export function createVoice(service,transport={}){
             if(phase==='chat'){const conv=store.owned('conversation',c.conversationId,uid),r=await service.chat(conv.id,uid,text,conv.revision,validate);return {phase:'chat',speech:r.messages.at(-1).text};}
             if(phase==='ticket'){service.ticket(uid,text);return {phase:'main',speech:'הפנייה נשמרה למשרד.'};}
             const message=service.compose(uid,c.contactId,text);return {phase:'family-review',messageId:message.id};});out=redirect();}
-          else out=record(c.speech|| (c.phase==='chat'?'אני כאן. מה תרצו לשאול?':c.phase==='ticket'?'ספרו מה תרצו להעביר למשרד.':'אמרו את ההודעה למשפחה.'));
+          else out=record(c.speech|| (c.phase==='chat'?'אני כאן. מה תרצו לשאול?':c.phase==='ticket'?'ספרו מה תרצו להעביר למשרד.':'מה תרצו לכתוב למשפחה? בסיום הקישו סולמית. נשמיע את הנוסח לבדיקה לפני השליחה.'));
         }else if(c.phase==='family-review'){
           const m=store.owned('message',c.messageId,uid),contact=store.owned('contact',m.contactId,uid);
           if(!['review','approved'].includes(m.status)){out=say(m.status==='accepted_by_mail_server'?'שרת המייל כבר קיבל את ההודעה.':'מצב המשלוח אינו ודאי. יש לבדוק עם המשרד לפני ניסיון נוסף.')+gather('לחזרה לתפריט הראשי הקישו 8.');}
           else if(digit==='1'&&c.messagePresented===m.id){const approved=m.status==='approved'?m:service.approveMessage(m.id,uid,true,m.revision);c=job(c,'family-mail',async()=>{await service.sendMessage(approved.id,uid,approved.revision);return {phase:'main',speech:'שרת המייל קיבל את ההודעה. זו אינה הוכחת קריאה.'};});out=redirect();}
-          else if(digit==='2'){c=save({...c,phase:'family-compose'});out=redirect();}
-          else{c=save({...c,messagePresented:m.id});out=gather(`ההודעה אל ${contact.name}: ${m.text}. לאישור ושליחה 1. להקלטה מחדש 2.`);}
+          else if(digit==='2'){c=save({...c,phase:'family-compose',messagePresented:null,speech:null});out=redirect();}
+          else{c=save({...c,messagePresented:m.id});out=gather(`זו ההודעה שנקלטה עבור ${contact.name}. בדקו שהמילים מדויקות: ${m.text}. אם הכול נכון, לאישור ושליחה הקישו 1. לתיקון בהקלטה מחדש 2. לשמיעה חוזרת 3. לחזרה בלי לשלוח 8.`);}
         }else{c=save({...c,phase:'main'});out=redirect();}
         if(c.error){out=say(c.error)+out;c=save({...c,error:null});}
       }

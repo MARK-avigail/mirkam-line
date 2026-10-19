@@ -21,8 +21,9 @@ export async function transcribeAudio(audio, mime) {
   if(!extensions[type] || !audio?.length || audio.length > 24*1024*1024) throw new Error('הקלטה אינה תקינה או גדולה מדי.');
   const form = new FormData();
   form.append('file', new Blob([audio], {type}), 'recording.' + extensions[type]);
-  form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1');
+  form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe');
   form.append('language', 'he');
+  form.append('prompt', 'שיחה בעברית ישראלית במרקם ליין. הנושאים עשויים לכלול משפחה, כלא, בית סוהר, אסיר, עתירה ומכתב. יש לתמלל את המילים שנאמרו בלבד, בלי להוסיף מילים מהרשימה ובלי לשכתב או לשנות משמעות.');
   const result = await requestBytes('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: form }, 1024 * 1024);
   let text;
   try { text = JSON.parse(result.toString('utf8')).text; } catch { throw new Error('תשובת התמלול אינה תקינה.'); }

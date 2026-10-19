@@ -97,3 +97,16 @@ test('speech sends the selected warm voice and Hebrew delivery instructions',asy
  globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.openai.com/v1/audio/speech');const body=JSON.parse(options.body);assert.equal(body.model,'gpt-4o-mini-tts');assert.equal(body.voice,'coral');assert.match(body.instructions,/Israeli Hebrew/);assert.equal(body.input,'שלום');return new Response(wav(),{status:200});};
  assert.deepEqual(await liveProviders().speak('שלום'),wav());
 });
+test('family review offers replay and re-recording without sending or carrying old approval',async t=>{
+ const {server,store,service}=fixture(t),u=enroll(service),login=service.identity.login(u.user.code,u.pin);
+ const contact=service.approveContact(u.user.id,{name:'משפחה',email:'test@example.test'},'owner');
+ const message=service.compose(u.user.id,contact.id,'שלום מתוך חומות הכל');let sent=0;service.providers.familyMail=async()=>{sent++;throw Error('must not send');};
+ store.create('call','voice',{id,phase:'family-review',silence:0,token:login.token,messageId:message.id});
+ let r=await step(server);assert.match(r.text,/בדקו שהמילים מדויקות/);assert.match(r.text,/לשמיעה חוזרת 3/);
+ let c=store.get('call',id);r=await step(server,{Digits:'3'},'?input='+c.inputNonce);assert.match(r.text,/שלום מתוך חומות הכל/);assert.equal(sent,0);
+ c=store.get('call',id);await step(server,{Digits:'2'},'?input='+c.inputNonce);c=store.get('call',id);assert.equal(c.phase,'family-compose');assert.equal(c.messagePresented,null);assert.equal(sent,0);assert.equal(store.get('message',message.id).status,'review');
+});
+test('repeated login prompt is short and keeps six-digit authentication',async t=>{
+ const {server}=fixture(t);const first=await step(server),again=await step(server);
+ assert.match(first.text,/הקודים אינם מוקלטים/);assert.doesNotMatch(again.text,/תמלולים והקלטות/);assert.match(again.text,/numDigits="6"/);assert.match(again.text,/timeout="30"/);
+});
