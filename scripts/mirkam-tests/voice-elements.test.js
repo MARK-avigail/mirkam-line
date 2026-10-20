@@ -259,3 +259,27 @@ test('fixed speech cache evicts within its byte limit and excludes arbitrary tex
  await cache.get('אני כאן. מה תרצו לשאול?',generate);await cache.get('רק רגע.',generate);assert.equal(calls,3);
  await cache.get('מידע פרטי',generate);await cache.get('מידע פרטי',generate);assert.equal(calls,5);
 });
+
+test('completed chat answer is spoken once, not replayed after silence',async t=>{
+ const {server,store}=await prepared(t);const answer='תשובה שהושלמה לבדיקה';
+ store.put('call',{...store.get('call',id),speech:answer});
+ const first=await step(server);assert.match(first.text,new RegExp(answer));
+ assert.equal(store.get('call',id).speech,null);
+ const retry=await step(server);assert.doesNotMatch(retry.text,new RegExp(answer));assert.match(retry.text,/מה תרצו לשאול/);
+});
+test('returning to main menu does not replay a pending answer from the previous branch',async t=>{
+ const {server,store}=await prepared(t);const answer='תשובה ישנה מהשלוחה';
+ store.put('call',{...store.get('call',id),speech:answer,inputNonce:'back'});
+ await step(server,{Digits:'8'},'?input=back');
+ const menu=await step(server);assert.doesNotMatch(menu.text,new RegExp(answer));assert.match(menu.text,/כותבים עתירה/);
+});
+test('restart recovery clears old answer and approval context without changing saved messages',async t=>{
+ const {store,service,u}=await prepared(t,'processing');
+ const job=store.create('voice-job','voice',{callId:id,kind:'family-mail',status:'processing',previous:'family-review'});
+ store.create('message',u.user.id,{text:'תוכן שנשמר לבדיקה',status:'review'});
+ const before=store.get('call',id);store.put('call',{...before,jobId:job.id,speech:'תשובה ישנה',inputNonce:'old-input',recordNonce:'old-record',messagePresented:'old-message',deliveryPresented:'old-delivery'});
+ const savedBefore=store.list('message');service.recover();
+ const after=store.get('call',id);assert.equal(after.phase,'family-review');assert.equal(after.jobId,null);
+ for(const field of ['speech','inputNonce','recordNonce','messagePresented','deliveryPresented'])assert.equal(after[field],null);
+ assert.equal(store.get('voice-job',job.id).status,'interrupted');assert.deepEqual(store.list('message'),savedBefore);
+});

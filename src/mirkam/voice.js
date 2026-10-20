@@ -66,7 +66,7 @@ export function createVoice(service,transport={}){
         if(c.phase==='processing'){out=(c.processingNotified?'':say('רק רגע.'))+'<Pause length="1"/>'+redirect();c={...c,processingNotified:true};}
         else if(digit==='7'){c=save({...c,phase:'main',draftId:null});out=say('העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
         else if(digit==='*'){out=gather('לשמירה ויציאה הקישו 7. לחזרה לתפריט הראשי 8. לעזרה 9. לדילוג על פרט רשות 0. בזמן הקלטה סולמית מסיימת את ההקלטה.');}
-        else if(digit==='8'){c=save({...c,phase:'main'});out=redirect();}
+        else if(digit==='8'){c=save({...c,phase:'main',speech:null,error:null,recordNonce:null,messagePresented:null,deliveryPresented:null});out=redirect();}
         else if(c.phase==='main'){
           const completion=c.speech;c={...c,speech:null};
           if(digit==='6'&&user.oversight){c=save({...c,phase:'oversight'});out=redirect();}else {const b=BRANCHES.find(b=>b.digit===digit);if(b){c=save({...c,phase:'branch',branch:b.digit});out=redirect();}else out=gather(BRANCHES.map(b=>`${b.title}, הקישו ${b.digit}`).join('. ')+(user.oversight?'. לפיקוח הקישו 6.':''));}
@@ -151,7 +151,7 @@ export function createVoice(service,transport={}){
             if(phase==='chat'){const conv=store.owned('conversation',c.conversationId,uid),r=await service.chat(conv.id,uid,text,conv.revision,validate,{channel:'telephone'});return {phase:'chat',speech:r.messages.at(-1).text};}
             if(phase==='ticket'){service.ticket(uid,text);return {phase:'main',speech:'הפנייה נשמרה למשרד.'};}
             const message=service.compose(uid,c.contactId,text);return {phase:'family-review',messageId:message.id};});out=redirect();}
-          else out=record(c.speech|| (c.phase==='chat'?'אני כאן. מה תרצו לשאול?':c.phase==='ticket'?'ספרו מה תרצו להעביר למשרד.':'מה תרצו לכתוב למשפחה? בסיום הקישו סולמית. נשמיע את הנוסח לבדיקה לפני השליחה.'));
+          else {const completion=c.speech;c={...c,speech:null};out=record(completion|| (c.phase==='chat'?'אני כאן. מה תרצו לשאול?':c.phase==='ticket'?'ספרו מה תרצו להעביר למשרד.':'מה תרצו לכתוב למשפחה? בסיום הקישו סולמית. נשמיע את הנוסח לבדיקה לפני השליחה.'));}
         }else if(c.phase==='family-review'){
           const m=store.owned('message',c.messageId,uid),contact=store.owned('contact',m.contactId,uid);
           if(!['review','approved'].includes(m.status)){out=say(m.status==='accepted_by_mail_server'?'שרת המייל כבר קיבל את ההודעה.':'מצב המשלוח אינו ודאי. יש לבדוק עם המשרד לפני ניסיון נוסף.')+gather('לחזרה לתפריט הראשי הקישו 8.');}

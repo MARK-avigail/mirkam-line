@@ -18,6 +18,22 @@ internal static class Program
     static string Required(string key) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } v ? v : throw new Exception("Missing setting: " + key);
     static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--streaming-native-api")
+        {
+            // Read-only metadata inspection. Do not initialize media, bind ports,
+            // read settings, or contact either provider in this mode.
+            var assembly = typeof(VoiceElements.Client.Streams.MediaProcessor).Assembly;
+            foreach (var type in assembly.GetTypes().OrderBy(t => t.FullName))
+            foreach (var method in type.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly))
+            {
+                var native = method.GetCustomAttributes(typeof(System.Runtime.InteropServices.DllImportAttribute), false)
+                    .Cast<System.Runtime.InteropServices.DllImportAttribute>().SingleOrDefault();
+                if (native != null)
+                    Console.WriteLine($"STREAMING_NATIVE_IMPORT type={type.FullName} library={native.Value} entry={native.EntryPoint} signature={method}");
+            }
+            Console.WriteLine("STREAMING_NATIVE_API_INSPECTED: no provider connection or call attempted");
+            return 0;
+        }
         if (args.Length == 1 && args[0] == "--streaming-platform-check")
         {
             // Isolated native dependency probe. No settings, ports or provider calls.
