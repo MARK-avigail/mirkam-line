@@ -1,3 +1,4 @@
+import {createFamilyInbox} from './family-inbox.js';
 import {callHealth} from './call-health.js';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -23,6 +24,7 @@ function staff(req,service){
 }
 export function createMirkamServer(service){
   const voice=createVoice(service),voiceElements=createVoiceElements(service);
+  const familyInbox=createFamilyInbox(service);
   const lineBusy=new Set();
   const voiceSamples=new Map();let sampleBusy=false,sampleAttempts=0,sampleWindow=0;
   const liveProvider=liveVoiceProvider();
@@ -168,12 +170,23 @@ export function createMirkamServer(service){
         }
         if(suffix==='membership'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>({id:u.id,name:u.name,...service.membership(u.id,{includeInactive:true})}))});
         if(suffix==='payments'&&method==='GET')return send({ok:true,items:service.store.list('payment')});
-        if(['conversations','drafts','messages'].includes(suffix)&&method==='GET'){const kind={conversations:'conversation',drafts:'draft',messages:'message'}[suffix];return send({ok:true,items:service.store.list(kind)});}
+        if(['conversations','drafts','messages'].includes(suffix)&&method==='GET'){
+          const kind={conversations:'conversation',drafts:'draft',messages:'message'}[suffix];let items=service.store.list(kind);
+          if(kind==='message')items=items.map(item=>{const contact=service.store.get('contact',item.contactId);return {...item,userName:service.store.get('user',item.owner)?.name||'',contactName:contact?.owner===item.owner?contact.name:''};});
+          return send({ok:true,items});
+        }
         if(suffix==='users'&&method==='GET')return send({ok:true,items:service.store.list('user').map(u=>{const {code,...profile}=safeUser(u);return profile;})});
         if(suffix==='users'&&method==='POST'){if(data.verificationConfirmed!==true)throw Error('יש לאשר שבוצע אימות זהות וזכאות לפני הרישום.');if(data.freeMembership===true&&auth.role!=='owner')throw Error('רק בעלת המערכת יכולה לאשר הטבת מינוי.');return send({ok:true,...service.identity.register(data,actor)});}
         if(suffix==='destinations'&&method==='POST')return send({ok:true,item:service.setDestination(data,actor)});
         if(suffix==='contacts'&&method==='POST')return send({ok:true,item:service.approveContact(data.userId,data,actor)});
         if(suffix==='announcements'&&method==='POST')return send({ok:true,item:service.announce(data.text,actor)});
+        if(suffix==='family-inbox'){
+          if(auth.role!=='owner')return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
+          if(!['GET','POST'].includes(method))return send({ok:false},405);
+          const result=method==='POST'?await familyInbox.sync():familyInbox.status();
+          const current=staff(req,service);if(current.role!=='owner'||current.actor!==actor)return send({ok:false,error:'נדרשת כניסה מחדש.'},403);
+          return send({ok:true,...result});
+        }
         if(suffix==='reply'&&method==='POST')return send({ok:true,item:service.receiveReply(data.messageId,data.sender,data.text,data.providerEvent,actor)});
         if(suffix==='cleanup'&&method==='POST')return send({ok:true,items:await service.cleanup()});
         if(suffix==='audit'&&method==='GET')return send({ok:true,items:service.store.list('audit')});
@@ -222,6 +235,7 @@ export function createMirkamServer(service){
       return send({ok:false,error:'לא נמצא.'},404);
     }catch(e){if(!res.headersSent)send({ok:false,error:e.message},e.status||400);else res.end();}
   });
-  server.on('close',()=>{voiceElements.close();livePreview.dispose().catch(()=>console.error('LIVE_PREVIEW_CLOSE_UNCONFIRMED'));});
+  server.on('listening',()=>familyInbox.start());
+  server.on('close',()=>{familyInbox.close();voiceElements.close();livePreview.dispose().catch(()=>console.error('LIVE_PREVIEW_CLOSE_UNCONFIRMED'));});
   return server;
 }

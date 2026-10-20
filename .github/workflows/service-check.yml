@@ -1,0 +1,32 @@
+name: Service and family inbox checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'public/mirkam/**'
+      - 'package.json'
+      - 'requirements-document.txt'
+      - '.github/workflows/service-check.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Install document renderer dependencies
+        run: python3 -m pip install -r requirements-document.txt
+      - name: Run service, UI, MIME and read-only mailbox tests without provider credentials
+        run: npm test

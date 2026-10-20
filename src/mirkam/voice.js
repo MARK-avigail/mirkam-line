@@ -45,6 +45,27 @@ export function createVoice(service,transport={}){
     const nonce=new URL(req.url,'http://localhost').searchParams;
     const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('<Gather ',['family-review','delivery-confirm','oversight-confirm'].includes(c.phase)?'<Gather clearDigits="true" ':'<Gather ').replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
     const record=(text,maxLength=180)=>{c={...c,inputNonce:randomUUID(),recordNonce:randomUUID()};return `<Gather numDigits="1" finishOnKey="" action="/voice/step?input=${c.inputNonce}" method="POST" timeout="1">${say(text)}</Gather><Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="${maxLength}" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;};
+
+    const familyMail=(uid,action='')=>{
+      const items=store.list('message',uid).filter(m=>m.direction==='incoming');
+      c={...c,phase:'family-inbox'};
+      if(!items.length)return gather('אין תשובות חדשות. לחזרה הקישו 8.');
+      let index=Math.max(0,items.findIndex(m=>m.id===c.familyReadMessage));
+      let part=Number.isSafeInteger(c.familyReadPart)?Math.max(0,c.familyReadPart):0;
+      const sections=m=>String(m.text||'').match(/[\s\S]{1,700}/g)||[''];
+      if(action==='1'){
+        if(part+1<sections(items[index]).length)part++;
+        else if(index+1<items.length){index++;part=0;}
+      }else if(action==='2'){
+        if(part>0)part--;
+        else if(index>0){index--;part=sections(items[index]).length-1;}
+      }
+      const message=items[index],parts=sections(message);part=Math.min(part,parts.length-1);
+      const contact=typeof message.contactId==='string'?store.get('contact',message.contactId):null;
+      c={...c,familyReadMessage:message.id,familyReadPart:part};
+      const last=part===parts.length-1&&index===items.length-1;
+      return gather((part===0?'הודעה מ'+(contact?.name||'המשפחה')+'. ':'')+parts[part]+(last?' סוף ההודעות. לשמיעה חוזרת 3.':' להמשך 1. לשמיעה חוזרת 3.')+' לקטע הקודם 2. לתפריט הראשי 8.');
+    };
     try{
       if(!c)c=store.create('call','voice',{id:data.CallSid,phase:'login-code',silence:0});
       let digit=data.Digits||'';
@@ -96,11 +117,12 @@ export function createVoice(service,transport={}){
           else if(b.digit==='2'&&['2','3'].includes(digit)){const items=store.list(digit==='2'?'version':'delivery',uid);out=say(items.length?items.slice(0,8).map((v,i)=>`${i+1}. ${digit==='2'?'גרסת מסמך':deliveryStatus(v.status)}. ${new Date(v.createdAt).toLocaleDateString('he-IL')}`).join('. '):'אין פריטים שמורים.')+gather('לחזרה לתפריט הראשי הקישו 8.');}
           else if(b.digit==='3'){if(digit==='1'){const conv=service.newConversation(uid,'שיחה '+new Date().toLocaleDateString('he-IL'));c=save({...c,conversationId:conv.id,phase:'chat'});out=redirect();}else if(digit==='2'){c=save({...c,phase:'conversation-list',listPage:0});out=redirect();}else out=redirect();}
           else if(b.digit==='4'&&digit==='1'){c=save({...c,phase:'contact-list',listPage:0});out=redirect();}
-          else if(b.digit==='4'&&digit==='2'){out=gather((store.list('message',uid).filter(m=>m.direction==='incoming').slice(0,8).map(m=>m.text).join('. ')||'אין תשובות חדשות.')+ ' לחזרה הקישו 8.');}
+          else if(b.digit==='4'&&digit==='2'){c={...c,familyReadMessage:null,familyReadPart:0};out=familyMail(uid);}
           else if(b.digit==='4'&&digit==='3'){out=gather((service.contacts(uid).map(x=>x.name).join('. ')||'אין אנשי קשר מאושרים. אפשר לפנות למשרד.')+ ' לחזרה הקישו 8.');}
           else if(b.digit==='5'&&digit==='1'){out=gather((store.list('announcement','all').filter(a=>a.active).map(a=>a.text).join('. ')||'אין הודעות חדשות.')+ ' לחזרה הקישו 8.');}
           else if(b.digit==='5'&&digit==='2'){const m=service.membership(uid);out=say(`מצב המינוי: ${{free:'ללא חיוב',trial:'תקופת ניסיון',paid:'פעיל',expired:'תקופת הניסיון הסתיימה'}[m.status]}. הטיוטות נשמרות בחשבון.`)+gather('לחזרה הקישו 8.');}
           else if(b.digit==='5'&&digit==='3'){c=save({...c,phase:'ticket'});out=redirect();}else out=redirect();
+        }else if(c.phase==='family-inbox'){out=familyMail(uid,digit);
         }else if(['draft-list','conversation-list','contact-list'].includes(c.phase)){
           const items=c.phase==='draft-list'?store.list('draft',uid).filter(d=>!['sending','archived','delivery-unknown'].includes(d.stage)):c.phase==='conversation-list'?store.list('conversation',uid):service.contacts(uid);
           const pages=Math.max(1,Math.ceil(items.length/6));let page=Math.min(c.listPage||0,pages-1);

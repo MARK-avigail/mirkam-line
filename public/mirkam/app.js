@@ -144,6 +144,26 @@ async function showAdminDocuments(id,ownerId=null){
  }
  const back=node('button',ownerId?'חזרה לתיק המשתמש':'חזרה לרשימת העתירות');back.type='button';back.onclick=()=>ownerId?run(()=>openUser(ownerId,'drafts')):$('suite-documents').onclick();p.append(back);reveal(p);
 }
+function familyInboxSummary(result){
+ const errors={INBOUND_NOT_CONFIGURED:'קליטת תשובות אינה מוגדרת לתיבת Gmail בשרת.',INBOUND_LOGIN_FAILED:'Gmail לא אישר כניסה לתיבה. יש לבדוק הרשאת IMAP וסיסמת אפליקציה בשרת.',INBOUND_NO_SENT_THREADS:'עדיין אין במערכת הודעה שנשלחה למשפחה שאפשר לשייך אליה תשובה.'};
+ if(result.error)return errors[result.error]||'בדיקת תיבת המייל לא הושלמה. ההודעות שכבר נקלטו נשמרו.';
+ if(!result.configured)return 'קליטת תשובות אינה מוגדרת בשרת.';
+ if(!result.checkedAt)return 'הקליטה מוכנה לבדיקה. עדיין אין תוצאת בדיקה.';
+ const rejected=Object.entries(result.skipped||{}).filter(([key])=>!['unrelated','duplicate'].includes(key)).reduce((total,[,value])=>total+value,0);
+ return 'בדיקה אחרונה: '+new Date(result.checkedAt).toLocaleString('he-IL')+'. נקלטו בבדיקה '+(result.lastImported||0)+' תשובות חדשות. סך הכול נקלטו '+(result.totalImported||0)+' תשובות.'+(result.pending?' יש הודעות נוספות בתור לבדיקה.':'')+(rejected?' '+rejected+' הודעות לא יובאו בגלל אימות, שיוך או גודל; יש לבדוק את התיבה.':'')+(result.attachmentsIgnored?' קבצים מצורפים לא יובאו; נקלט הטקסט בלבד.':'');
+}
+$('suite-family').onclick=()=>run(async()=>{
+ requireManagement();suiteActive('suite-family');
+ const p=$('admin-pane'),summary=node('p'),items=node('div');
+ p.replaceChildren(node('h2','קשר עם המשפחה'),summary);
+ async function refresh(){
+  const result=await api('admin/messages','GET',undefined,true);items.replaceChildren();
+  if(!result.items.length)items.append(node('p','אין פריטים שמורים.'));
+  for(const item of result.items){const box=node('section');box.append(node('h3',item.direction==='incoming'?'תשובה מהמשפחה':'הודעה למשפחה'));if(item.userName||item.contactName)box.append(node('p',[item.userName,item.contactName].filter(Boolean).join(' · ')));box.append(node('pre',item.text||''));if(item.createdAt)box.append(node('p',new Date(item.createdAt).toLocaleString('he-IL')));if(item.owner)button('פתיחת תיק המשתמש',()=>openUser(item.owner,'messages'),box);items.append(box);}
+ }
+ button('בדיקת מיילים חוזרים',async()=>{summary.textContent='בודקים את תיבת המייל…';const result=await api('admin/family-inbox','POST',{},true);summary.textContent=familyInboxSummary(result);await refresh();},p);
+ p.append(items);const [inboxStatus]=await Promise.all([api('admin/family-inbox','GET',undefined,true),refresh()]);summary.textContent=familyInboxSummary(inboxStatus);reveal(p);
+});
 $('suite-management').onclick=()=>{requireManagement();return (canManage('admin-users')?$('admin-users'):$('admin-status')).onclick();};
 function node(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;}
 function reveal(element){element.scrollIntoView?.({behavior:'smooth',block:'start'});}

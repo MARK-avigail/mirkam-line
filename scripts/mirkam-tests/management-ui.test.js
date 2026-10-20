@@ -7,20 +7,20 @@ const pages={owner:['admin-users','admin-status','admin-tickets','suite-line','s
 const text=n=>[n.textContent,...n.children.map(text)].join(' ');
 const cases=['empty','populated','unauthorized','forbidden','server-error','non-json','network','expired-inflight'];
 for(const [role,ids] of Object.entries(pages))for(const id of ids)for(const scenario of cases)test(`${role} ${id}: ${scenario}`,async()=>{
- let resolve,calls=0;
+ const waiting=[];let calls=0;
  const payload={ok:true,items:scenario==='populated'?[{id:'test',name:'fixture',text:'fixture',status:'open',answers:{subject:'fixture'},messages:[{text:'fixture'}]}]:[],branches:BRANCHES,aiConfigured:scenario==='populated',emailConfigured:scenario==='populated',voiceConfigured:scenario==='populated',faxConfigured:false,paymentConfigured:false,liveVerified:false};
  const u=ui(async(url,options)=>{
   if(url==='/api/staff-login')return json({ok:true,token:'session',role});
   calls++;assert.equal(options.headers.Authorization,'Bearer session');assert.equal(options.method,'GET');assert.match(url,/^\/api\/admin\//);
-  if(scenario==='expired-inflight')return new Promise(r=>{resolve=r;});
+  if(scenario==='expired-inflight')return new Promise(r=>{waiting.push(r);});
   if(scenario==='network')throw new TypeError('network');
   if(scenario==='non-json')return new Response('<html>proxy error</html>',{status:502,headers:{'content-type':'text/html'}});
   const status={unauthorized:401,forbidden:403,'server-error':500}[scenario];
   return status?json({ok:false,error:'test failure'},status):json(payload);
  });
  await u.submit('staff-login-form');const pending=u.click(id);
- if(scenario==='expired-inflight'){vm.runInContext('lockManagement()',u.context);resolve(json(payload));}
- await pending;assert.equal(calls,1);assert.equal(u.ids.get('login').hidden,true);assert.equal(u.ids.get('workspace').hidden,true);
+ if(scenario==='expired-inflight'){vm.runInContext('lockManagement()',u.context);for(const resolve of waiting)resolve(json(payload));}
+ await pending;assert.equal(calls,id==='suite-family'?2:1);assert.equal(u.ids.get('login').hidden,true);assert.equal(u.ids.get('workspace').hidden,true);
  const content=text(u.ids.get('admin-pane'));
  if(['unauthorized','expired-inflight'].includes(scenario)){
   assert.equal(u.ids.get('admin').hidden,true);assert.equal(u.ids.get('staff-gate').hidden,false);assert.equal(u.ids.get('admin-pane').children.length,0);

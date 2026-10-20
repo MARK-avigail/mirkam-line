@@ -63,8 +63,8 @@ export function liveProviders(){
       for(const a of attachments)files.push({filename:a.name,content:Buffer.from(a.base64,'base64'),contentType:a.mime});
       return sendMail({to:target.email,subject:'מרקם ליין — חבילת מסמכים לבדיקה',text:'מצורפים מסמכים לבדיקה. טיוטת התצהיר וטופס האגרה אינם אישור לאימות או לתשלום.',messageId:`<${idempotencyKey}@mirkam.invalid>`,attachments:files});
     },
-    familyMail:async({idempotencyKey,to,text})=>sendMail({to,subject:'מרקם ליין — הודעה למשפחה',text,messageId:`<${idempotencyKey}@mirkam.invalid>`}),
-    // Payment and inbound-email providers still require authenticated adapters.
+    familyMail:async({idempotencyKey,to,text})=>sendMail({to,subject:'מרקם ליין — הודעה למשפחה',text,replyTo:process.env.SMTP_USER,messageId:`<${idempotencyKey}@mirkam.invalid>`}),
+    // Payment provider still requires an authenticated adapter. Gmail intake is in family-inbox.js.
     // No stub reports paid, faxed or delivered in the absence of that provider.
   };
 }
