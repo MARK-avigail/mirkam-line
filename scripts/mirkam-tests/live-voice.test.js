@@ -68,3 +68,16 @@ test('hangup encodes opaque session ID and never follows a redirect',async t=>{
  globalThis.fetch=async(url,opts)=>{assert.equal(url,'https://api.openai.com/v1/live/sessions/opaque%2Fid/hangup');assert.equal(opts.redirect,'error');return new Response(null,{status:204});};
  await liveVoiceProvider().close('opaque/id');
 });
+
+test('project header scopes creation and hangup while keeping the selected custom voice',async t=>{
+ const old=globalThis.fetch,key=process.env.OPENAI_API_KEY,project=process.env.MIRKAM_LIVE_PROJECT_ID;
+ process.env.OPENAI_API_KEY='test-secret';process.env.MIRKAM_LIVE_PROJECT_ID='proj_synthetic123';
+ t.after(()=>{globalThis.fetch=old;for(const [name,value] of [['OPENAI_API_KEY',key],['MIRKAM_LIVE_PROJECT_ID',project]]){if(value===undefined)delete process.env[name];else process.env[name]=value;}});
+ const calls=[];globalThis.fetch=async(url,opts)=>{calls.push({url,opts});return url.endsWith('/hangup')?new Response(null,{status:204}):Response.json(answer);};
+ const provider=liveVoiceProvider();await provider.create(sdp);await provider.close('live_test');
+ assert.equal(calls.length,2);for(const call of calls)assert.equal(call.opts.headers['OpenAI-Project'],'proj_synthetic123');
+ assert.equal(JSON.parse(calls[0].opts.body).session.audio.output.voice.id,CUSTOM_LIVE_VOICE);
+ process.env.MIRKAM_LIVE_PROJECT_ID='invalid\r\nheader';
+ await assert.rejects(provider.create(sdp),e=>e.status===503);assert.equal(calls.length,2);
+ delete process.env.MIRKAM_LIVE_PROJECT_ID;await provider.create(sdp);assert.equal(calls[2].opts.headers['OpenAI-Project'],undefined);
+});

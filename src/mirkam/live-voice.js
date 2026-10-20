@@ -11,7 +11,12 @@ async function payload(response){
   finally{if(!done)await reader.cancel().catch(()=>{});reader.releaseLock();}
 }
 export function liveVoiceProvider(){
-  const headers=()=>{if(!process.env.OPENAI_API_KEY)throw failure('מפתח הקול אינו מוגדר בשרת.',503);return {Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json'};};
+  const headers=()=>{
+    if(!process.env.OPENAI_API_KEY)throw failure('מפתח הקול אינו מוגדר בשרת.',503);
+    const project=process.env.MIRKAM_LIVE_PROJECT_ID;
+    if(project&&!/^proj_[A-Za-z0-9_-]{8,100}$/.test(project))throw failure('מזהה פרויקט הקול אינו תקין.',503);
+    return {Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json',...(project?{'OpenAI-Project':project}:{})};
+  };
   return {
     async create(sdp){
       if(typeof sdp!=='string'||sdp.length>64000||!sdp.startsWith('v=0')||!sdp.includes('m=audio'))throw failure('הצעת חיבור האודיו אינה תקינה.',400);
