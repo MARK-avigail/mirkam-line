@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ui,json} from './ui-harness.js';
+import vm from 'node:vm';
+
+test('user dossier shows Hebrew direction, family name, full reply and date',async()=>{
+ const u=ui(async url=>url==='/api/staff-login'?json({ok:true,token:'session',role:'owner'}):json({ok:true,user:{id:'a',name:'משה כהן',active:true},contacts:[{id:'c',name:'המשפחה'}],messages:[{id:'m',direction:'incoming',contactId:'c',status:'received',text:'מחכים לך בבית. כלא ולא הכל.',createdAt:Date.now()}]}));
+ await u.submit('staff-login-form');await vm.runInContext("openUser('a','messages')",u.context);
+ const text=u.text('admin-pane');assert.match(text,/תשובה מהמשפחה/);assert.match(text,/מאת: המשפחה/);assert.match(text,/מחכים לך בבית. כלא ולא הכל./);assert.doesNotMatch(text,/received/);
+});
 
 test('owner checks inbox and sees newly received reply without HTML rendering',async()=>{
  let imported=false,checks=0;const text='הכוונה הייתה כלא, ולא הכל. <script>test</script>';

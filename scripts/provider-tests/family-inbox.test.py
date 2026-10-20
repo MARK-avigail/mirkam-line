@@ -19,6 +19,25 @@ def email(sender='family@example.test', authentication='mx.google.com; dmarc=pas
     return msg
 
 class Parsing(unittest.TestCase):
+    def test_hebrew_multiline_gmail_attribution_is_not_reply_content(self):
+        quote='בתאריך יום ב׳, 19 באוק׳ 2026,\n13:26, מאת\n<line@gmail.com>:\n> הודעה ישנה'
+        self.assertEqual(m.parse_reply(email(text=quote).as_bytes(),PARENTS,1)[1],'body')
+        item,error=m.parse_reply(email(text=quote).as_bytes(),PARENTS,1,include_empty=True)
+        self.assertIsNone(error);self.assertTrue(item['bodyUnavailable']);self.assertEqual(item['text'],'')
+        item,error=m.parse_reply(email(text='זו התשובה שלי.\n\n'+quote).as_bytes(),PARENTS,1)
+        self.assertEqual(item['text'],'זו התשובה שלי.')
+        self.assertEqual(m.parse_reply(email(text='\u202b'+quote+'\u202c').as_bytes(),PARENTS,1)[1],'body')
+    def test_bottom_posted_answer_survives_explicit_plain_quotes(self):
+        text='בתאריך יום ב׳, מאת <line@gmail.com>:\n> הודעה ישנה\n\nאני מחכה לך בבית.'
+        self.assertEqual(m.parse_reply(email(text=text).as_bytes(),PARENTS,1)[0]['text'],'אני מחכה לך בבית.')
+    def test_html_recovers_answer_when_plain_alternative_is_only_attribution(self):
+        msg=email(text='בתאריך יום ב׳, מאת <line@gmail.com>:\n> ישן')
+        msg.add_alternative('<div class="gmail_quote"><div class="gmail_attr">בתאריך אתמול מאת מישהו:</div><blockquote>ישן</blockquote></div><div>אנחנו מתגעגעים אליך.</div>',subtype='html')
+        item,error=m.parse_reply(msg.as_bytes(),PARENTS,1)
+        self.assertIsNone(error);self.assertEqual(item['text'],'אנחנו מתגעגעים אליך.')
+    def test_html_quoted_history_and_date_in_real_answer(self):
+        msg=email();msg.set_content('<div>בתאריך שנקבע נבוא לבקר.</div><div class="gmail_attr">בתאריך אתמול, מאת מישהו:</div><blockquote><div>ישן</div></blockquote>',subtype='html')
+        self.assertEqual(m.parse_reply(msg.as_bytes(),PARENTS,1)[0]['text'],'בתאריך שנקבע נבוא לבקר.')
     def test_hebrew_mime_reply_matches_parent_without_rewriting(self):
         msg=email(text='הכוונה הייתה כלא, ולא הכל.\nנפגש בקרוב!')
         item, error=m.parse_reply(msg.as_bytes(), PARENTS, 4)

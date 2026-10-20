@@ -27,7 +27,7 @@ export function createFamilyInbox(service,{read=service.providers.familyInbox||r
   const save=value=>{const previous=state();return previous?store.put('mail-sync',{...previous,...value}):store.create('mail-sync','system',{id:'family-inbox',...value});};
   const status=()=>{
     const s=state()||{};
-    return {configured:Boolean(enabled()),busy:Boolean(running),checkedAt:s.checkedAt||null,lastImported:s.lastImported||0,totalImported:s.totalImported||0,scanned:s.scanned||0,pending:Boolean(s.pending),skipped:s.skipped||{},error:s.error||null,attachmentsIgnored:s.attachmentsIgnored||0};
+    return {configured:Boolean(enabled()),busy:Boolean(running),checkedAt:s.checkedAt||null,lastImported:s.lastImported||0,totalImported:s.totalImported||0,lastRepaired:s.lastRepaired||0,totalRepaired:s.totalRepaired||0,bodyUnavailable:s.bodyUnavailable||0,scanned:s.scanned||0,pending:Boolean(s.pending),skipped:s.skipped||{},error:s.error||null,attachmentsIgnored:s.attachmentsIgnored||0};
   };
   async function perform(){
     if(closed||!enabled())return {...status(),error:'INBOUND_NOT_CONFIGURED'};
@@ -42,28 +42,42 @@ export function createFamilyInbox(service,{read=service.providers.familyInbox||r
     if(!count){save({checkedAt:now(),lastImported:0,scanned:0,error:'INBOUND_NO_SENT_THREADS'});return status();}
     const mailbox=digest((process.env.SMTP_USER||'test-mailbox').toLowerCase()),before=state();
     const prior=before?.mailbox===mailbox?before:{};
+    // One bounded read-only migration revisits already imported messages. Keep
+    // its cursor separate so an incomplete repair never loses normal intake.
+    const repair=prior.parserVersion!==2;
+    const scanCursor=repair?(prior.repairCursor||0):(prior.cursor||0);
     try{
-      const result=await read({parents,cursor:prior.cursor||0,uidValidity:prior.uidValidity||0,since:new Date(Math.max(now()-30*86400000,earliest-2*86400000)).toISOString().slice(0,10)});
+      const result=await read({parents,cursor:scanCursor,uidValidity:prior.uidValidity||0,repair,since:new Date(Math.max(now()-30*86400000,earliest-2*86400000)).toISOString().slice(0,10)});
       if(closed||store.closed)throw fail('INBOUND_UNAVAILABLE');
       if(!Number.isSafeInteger(result.uidValidity)||result.uidValidity<=0||!Number.isSafeInteger(result.cursor)||result.cursor<0||!Number.isSafeInteger(result.scanned)||result.scanned<0||result.scanned>50||!Array.isArray(result.replies)||result.replies.length>50||typeof result.pending!=='boolean')throw fail('INBOUND_INVALID_RESPONSE');
-      if(result.uidValidity===prior.uidValidity&&result.cursor<(prior.cursor||0))throw fail('INBOUND_INVALID_RESPONSE');
+      if(result.uidValidity===prior.uidValidity&&result.cursor<scanCursor)throw fail('INBOUND_INVALID_RESPONSE');
       if(result.replies.length>result.scanned)throw fail('INBOUND_INVALID_RESPONSE');
-      let imported=0,attachments=0;
+      let imported=0,attachments=0,repaired=0,unavailable=0;
       const seenUids=new Set();
       const skipped={};for(const [key,value] of Object.entries(result.skipped||{}))if(['sender','unrelated','ambiguous','authentication','body','oversized'].includes(key)&&Number.isSafeInteger(value)&&value>=0&&value<=50)skipped[key]=value;
       store.atomic(()=>{
         for(const item of result.replies){
-          if(!Number.isSafeInteger(item.uid)||item.uid<=0||item.uid>result.cursor||typeof item.text!=='string'||!item.text.trim()||item.text.length>5000||typeof item.sender!=='string'||item.sender.length>254||!Object.values(parents).includes(item.parentId))throw fail('INBOUND_INVALID_RESPONSE');
-          if(seenUids.has(item.uid)||(result.uidValidity===prior.uidValidity&&item.uid<=(prior.cursor||0)))throw fail('INBOUND_INVALID_RESPONSE');seenUids.add(item.uid);
+          if(!Number.isSafeInteger(item.uid)||item.uid<=0||item.uid>result.cursor||typeof item.text!=='string'||(!item.text.trim()&&!(repair&&item.bodyUnavailable===true))||item.text.length>5000||typeof item.sender!=='string'||item.sender.length>254||!Object.values(parents).includes(item.parentId))throw fail('INBOUND_INVALID_RESPONSE');
+          if(seenUids.has(item.uid)||(result.uidValidity===prior.uidValidity&&item.uid<=scanCursor))throw fail('INBOUND_INVALID_RESPONSE');seenUids.add(item.uid);
           const parent=store.get('message',item.parentId),contact=parent&&store.get('contact',parent.contactId);
           if(!parent||!contact||contact.owner!==parent.owner||!contact.active||!contact.approved||contact.email!==item.sender.toLowerCase()){skipped.contact=(skipped.contact||0)+1;continue;}
           const messageId=typeof item.messageId==='string'&&/^<[^<>\s]{1,200}>$/.test(item.messageId)?item.messageId:`uid:${result.uidValidity}:${item.uid}`;
           const event='gmail-imap:'+digest(mailbox+':'+messageId);
           const previous=store.get('message',digest(JSON.stringify(['incoming',event])));
-          if(previous){if(previous.owner!==parent.owner||previous.parentId!==parent.id)skipped.ambiguous=(skipped.ambiguous||0)+1;else skipped.duplicate=(skipped.duplicate||0)+1;continue;}
-          service.receiveReply(parent.id,item.sender,item.text,event,'gmail-imap');imported++;if(item.hasAttachments)attachments++;
+          if(previous){
+            if(previous.owner!==parent.owner||previous.parentId!==parent.id||previous.contactId!==contact.id)skipped.ambiguous=(skipped.ambiguous||0)+1;
+            else if(repair&&previous.verifiedBy==='gmail-imap'&&!previous.bodyParserVersion){
+              // Preserve the original encrypted body, identity and timestamps.
+              store.put('message',{...previous,text:item.text||'לא נמצא תוכן תשובה חדש במייל המקורי.',bodyUnavailable:item.bodyUnavailable===true,bodyParserVersion:2,bodyBeforeRepair:previous.text,bodyRepairedAt:now()});
+              store.audit('gmail-imap','message.body-reparsed',previous.id);repaired++;if(item.bodyUnavailable)unavailable++;
+            }else skipped.duplicate=(skipped.duplicate||0)+1;
+            continue;
+          }
+          if(item.bodyUnavailable){skipped.body=(skipped.body||0)+1;unavailable++;continue;}
+          const received=service.receiveReply(parent.id,item.sender,item.text,event,'gmail-imap');
+          store.put('message',{...received,bodyParserVersion:2});imported++;if(item.hasAttachments)attachments++;
         }
-        save({mailbox,uidValidity:result.uidValidity,cursor:result.cursor,checkedAt:now(),lastImported:imported,totalImported:(before?.totalImported||0)+imported,scanned:result.scanned,pending:result.pending,skipped,error:null,attachmentsIgnored:attachments});
+        save({mailbox,uidValidity:result.uidValidity,cursor:result.uidValidity===prior.uidValidity?Math.max(prior.cursor||0,result.cursor):result.cursor,repairCursor:repair?result.cursor:0,parserVersion:repair&&result.pending?1:2,checkedAt:now(),lastImported:imported,totalImported:(before?.totalImported||0)+imported,lastRepaired:repaired,totalRepaired:(before?.totalRepaired||0)+repaired,bodyUnavailable:unavailable,scanned:result.scanned,pending:result.pending,skipped,error:null,attachmentsIgnored:attachments});
       });
       return status();
     }catch(error){

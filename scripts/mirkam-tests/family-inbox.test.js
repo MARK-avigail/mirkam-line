@@ -8,6 +8,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 const execute=promisify(execFile);
 import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
 import {Store} from '../../src/mirkam/store.js';
 import {Mirkam} from '../../src/mirkam/service.js';
 import {createFamilyInbox} from '../../src/mirkam/family-inbox.js';
@@ -22,6 +23,42 @@ function fixture(t){
 }
 const batch=(message,{uid=1,messageId='<family-reply@example.test>',sender='family@example.test',text='הכוונה הייתה כלא, ולא הכל.'}={})=>({ok:true,uidValidity:42,cursor:uid,scanned:1,pending:false,skipped:{},replies:[{uid,parentId:message.id,sender,messageId,text,hasAttachments:false}]});
 function receiver(t,f,read){const inbox=createFamilyInbox(f.service,{read,enabled:()=>true});t.after(()=>inbox.close());return inbox;}
+test('legacy imported body is repaired by source identity without duplicate, preserving original and intake cursor',async t=>{
+ const f=fixture(t),hash=v=>createHash('sha256').update(v).digest('hex'),mailbox=hash((process.env.SMTP_USER||'test-mailbox').toLowerCase());
+ const event='gmail-imap:'+hash(mailbox+':<family-reply@example.test>');
+ const old=f.service.receiveReply(f.message.id,f.contact.email,'בתאריך אתמול מאת <line@gmail.com>:',event,'gmail-imap');
+ f.store.create('mail-sync','system',{id:'family-inbox',mailbox,uidValidity:42,cursor:100,totalImported:1});
+ const inbox=receiver(t,f,async input=>{assert.equal(input.repair,true);assert.equal(input.cursor,0);return batch(f.message,{uid:3,text:'התשובה האמיתית מהמשפחה'});});
+ const result=await inbox.sync(),saved=f.store.get('message',old.id);
+ assert.equal(result.lastRepaired,1);assert.equal(result.lastImported,0);assert.equal(result.totalImported,1);
+ assert.equal(saved.text,'התשובה האמיתית מהמשפחה');assert.equal(saved.bodyBeforeRepair,old.text);assert.equal(saved.createdAt,old.createdAt);
+ assert.equal(f.store.list('message').filter(m=>m.direction==='incoming').length,1);assert.equal(f.store.get('mail-sync','family-inbox').cursor,100);
+ const normal=receiver(t,f,async input=>{assert.equal(input.repair,false);assert.equal(input.cursor,100);return {...batch(f.message),cursor:100,scanned:0,replies:[]};});
+ assert.equal((await normal.sync()).error,null);
+});
+test('quote-only original is marked unavailable without inventing a reply or destroying original',async t=>{
+ const f=fixture(t),hash=v=>createHash('sha256').update(v).digest('hex'),mailbox=hash((process.env.SMTP_USER||'test-mailbox').toLowerCase());
+ const old=f.service.receiveReply(f.message.id,f.contact.email,'בתאריך אתמול מאת <line@gmail.com>:','gmail-imap:'+hash(mailbox+':<family-reply@example.test>'),'gmail-imap');
+ const reply=batch(f.message,{text:''});reply.replies[0].bodyUnavailable=true;
+ const result=await receiver(t,f,async()=>reply).sync(),saved=f.store.get('message',old.id);
+ assert.equal(result.lastRepaired,1);assert.equal(result.bodyUnavailable,1);assert.equal(saved.bodyUnavailable,true);assert.equal(saved.bodyBeforeRepair,old.text);assert.match(saved.text,/לא נמצא תוכן תשובה/);
+});
+test('bounded repair resumes its own cursor across batches and retains high water mark',async t=>{
+ const f=fixture(t),hash=v=>createHash('sha256').update(v).digest('hex'),mailbox=hash((process.env.SMTP_USER||'test-mailbox').toLowerCase());
+ f.store.create('mail-sync','system',{id:'family-inbox',mailbox,uidValidity:42,cursor:100,totalImported:0});
+ let calls=0;const inbox=receiver(t,f,async input=>{calls++;assert.equal(input.repair,true);assert.equal(input.cursor,calls===1?0:50);return {ok:true,uidValidity:42,cursor:calls===1?50:100,scanned:50,pending:calls===1,skipped:{},replies:[]};});
+ await inbox.sync();assert.equal(f.store.get('mail-sync','family-inbox').parserVersion,1);
+ await inbox.sync();assert.equal(f.store.get('mail-sync','family-inbox').parserVersion,2);assert.equal(f.store.get('mail-sync','family-inbox').cursor,100);
+});
+test('repair leaves manual and already reparsed messages unchanged',async t=>{
+ for(const actor of ['owner','gmail-imap']){
+  const f=fixture(t),hash=v=>createHash('sha256').update(v).digest('hex'),mailbox=hash((process.env.SMTP_USER||'test-mailbox').toLowerCase());
+  let old=f.service.receiveReply(f.message.id,f.contact.email,'תוכן קיים','gmail-imap:'+hash(mailbox+':<family-reply@example.test>'),actor);
+  if(actor==='gmail-imap')old=f.store.put('message',{...old,bodyParserVersion:2});
+  const result=await receiver(t,f,async()=>batch(f.message,{text:'תוכן אחר'})).sync();
+  assert.equal(result.lastRepaired,0);assert.equal(f.store.get('message',old.id).text,'תוכן קיים');
+ }
+});
 function request(server,url,{method='GET',token=admin,body}={}){
  return new Promise((resolve,reject)=>{const req=Readable.from(body===undefined?[]:[typeof body==='string'?body:JSON.stringify(body)]);req.url=url;req.method=method;req.headers={authorization:'Bearer '+token,host:'example.test'};req.socket={remoteAddress:'127.0.0.1'};
  const response={setHeader(){},writeHead(status){this.status=status;},end(data=''){const text=String(data);let parsed;try{parsed=JSON.parse(text);}catch{}resolve({status:this.status,text,body:parsed});}};server.emit('request',req,response);req.on('error',reject);});
