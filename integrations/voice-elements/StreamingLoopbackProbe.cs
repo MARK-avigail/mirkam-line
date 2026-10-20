@@ -17,12 +17,12 @@ internal static class StreamingLoopbackProbe
             name.Equals("winmm.dll", StringComparison.OrdinalIgnoreCase) ? library : IntPtr.Zero);
         // Use only loopback and a free local port; no settings or credentials read.
         using var reserve = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
-        int port = ((IPEndPoint)reserve.Client.LocalEndPoint!).Port;
+        int port = ((IPEndPoint)reserve.Client.LocalEndPoint!).Port & ~1;
         reserve.Close();
         MediaProcessor? media = null;
         try
         {
-            MediaProcessor.Init("127.0.0.1", "127.0.0.1", 1, port);
+            MediaProcessor.Init("127.0.0.1", "127.0.0.1", 2, port);
             media = new MediaProcessor(10, MediaProcessorCodec.G711_Mulaw_8Bit_8Khz);
             var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
             media.StreamEvent += (_, e) => received.TrySetResult(e.Buffer.ToArray());
@@ -53,6 +53,11 @@ internal static class StreamingLoopbackProbe
         {
             var cause = error is TargetInvocationException ? error.InnerException! : error;
             Console.WriteLine("STREAMING_LOCAL_PROBE_FAILED type=" + cause.GetType().FullName);
+            // This isolated mode reads no configuration and uses synthetic packets.
+            // SDK setup diagnostics here cannot contain live caller or provider data.
+            Console.WriteLine("PROBE_LOCAL_DETAIL=" + cause.Message.Substring(0, Math.Min(cause.Message.Length, 600)));
+            for (var inner = cause.InnerException; inner != null; inner = inner.InnerException)
+                Console.WriteLine("PROBE_LOCAL_INNER=" + inner.GetType().FullName + " " + inner.Message.Substring(0, Math.Min(inner.Message.Length, 600)));
             foreach (var frame in (new System.Diagnostics.StackTrace(cause, false).GetFrames() ?? Array.Empty<System.Diagnostics.StackFrame>()).Take(6))
                 Console.WriteLine("PROBE_FRAME=" + frame.GetMethod()?.DeclaringType?.FullName + "." + frame.GetMethod()?.Name);
             return 1;
