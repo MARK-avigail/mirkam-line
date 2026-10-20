@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'integrations/voice-elements/**'
+      - 'experiments/voice-streaming-linux/**'
       - '.github/workflows/voice-bridge-check.yml'
   workflow_dispatch:
 permissions:
@@ -27,3 +28,8 @@ jobs:
         run: dotnet /tmp/mirkam-bridge/Bridge.dll --streaming-native-api
       - name: Check native streaming dependency on Linux without calls
         run: dotnet /tmp/mirkam-bridge/Bridge.dll --streaming-platform-check
+      - name: Build experimental Linux clock adapter
+        run: gcc -Wall -Wextra -Werror -fPIC -shared experiments/voice-streaming-linux/clock-compat.c -o /tmp/libmirkam-clock.so
+      - name: Probe SDK with synthetic loopback audio only
+        timeout-minutes: 1
+        run: timeout 15s dotnet /tmp/mirkam-bridge/Bridge.dll --streaming-loopback-check /tmp/libmirkam-clock.so
