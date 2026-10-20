@@ -101,6 +101,9 @@ def parse_reply(source, parents, uid):
     if not item: return None, reason
     text = body_text(message)
     if not text or len(text.encode('utf-16-le', errors='replace')) // 2 > MAX_TEXT: return None, 'body'
+    # XML 1.0 is used by the telephone bridge; never import text that would
+    # make its reader fail when a caller opens this message.
+    if re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]', text): return None, 'body'
     message_ids = message.get_all('Message-ID', [])
     message_id = str(message_ids[0]).strip() if len(message_ids) == 1 else ''
     if not re.fullmatch(r'<[^<>\s]{1,200}>', message_id): message_id = ''

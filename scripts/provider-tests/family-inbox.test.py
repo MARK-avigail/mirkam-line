@@ -25,6 +25,13 @@ class Parsing(unittest.TestCase):
         self.assertIsNone(error); self.assertEqual(item['parentId'], 'parent-one')
         self.assertEqual(item['text'], 'הכוונה הייתה כלא, ולא הכל.\nנפגש בקרוב!')
         self.assertEqual(item['sender'], 'family@example.test')
+    def test_non_xml_control_characters_cannot_break_the_telephone_reader(self):
+        for char in ['\x00', '\uffff']:
+            with self.subTest(char=repr(char)):
+                self.assertEqual(m.parse_reply(email(text='שלום'+char+'משפחה').as_bytes(),PARENTS,1)[1],'body')
+        self.assertIsNone(m.parse_reply(email(text='שלום\nמשפחה\tיקרה').as_bytes(),PARENTS,1)[1])
+        normalized,error=m.parse_reply(email(text='שלום\x0bמשפחה').as_bytes(),PARENTS,1)
+        self.assertIsNone(error);self.assertEqual(normalized['text'],'שלום\nמשפחה')
     def test_sender_authentication_is_required_and_domain_aligned(self):
         for value in [None, 'attacker.example; dmarc=pass header.from=example.test', 'mx.google.com; dmarc=fail header.from=example.test', 'mx.google.com; dmarc=pass header.from=other.test', 'mx.google.com; dkim=pass header.d=example.test', 'mx.google.com; dmarc=fail (dmarc=pass header.from=example.test)', 'mx.google.com; dmarc=pass (header.from=example.test)', 'mx.google.com; dmarc=pass header.from=example.test.evil']:
             with self.subTest(value=value): self.assertEqual(m.parse_reply(email(authentication=value).as_bytes(), PARENTS, 1)[1], 'authentication')
@@ -89,6 +96,15 @@ class Mailbox(unittest.TestCase):
     def test_oversized_mail_skipped_before_downloading_body(self):
         result,box=self.run_box(large=True);self.assertEqual(result['replies'],[]);self.assertEqual(result['skipped']['oversized'],1)
         self.assertFalse(any(call[0]=='FETCH' and 'BODY.PEEK[]' in str(call) for call in box.calls))
+    def test_truncated_message_is_not_imported_as_a_complete_reply(self):
+        box=FakeIMAP('unused');original=box.uid
+        def uid(command,*args):
+            if command=='FETCH' and 'BODY.PEEK[]' in args[1]:return 'OK',[(b'body',box.source[:-10])]
+            return original(command,*args)
+        box.uid=uid
+        with self.assertRaisesRegex(m.MailFailure,'^INBOUND_INVALID_RESPONSE$'):
+            m.read_mail({'parents':PARENTS,'since':'2026-10-01'},lambda *args,**kwargs:box)
+        self.assertTrue(box.logged_out)
     def test_login_error_is_safe_and_connection_closed(self):
         box=FakeIMAP('unused');box.auth_fail=True
         with self.assertRaisesRegex(m.MailFailure,'^INBOUND_LOGIN_FAILED$'):
