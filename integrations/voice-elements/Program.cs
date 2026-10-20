@@ -18,6 +18,8 @@ internal static class Program
     static string Required(string key) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } v ? v : throw new Exception("Missing setting: " + key);
     static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--streaming-socket-api")
+            return StreamingSocketInspection.Run();
         if (args.Length == 2 && args[0] == "--streaming-loopback-check")
             return StreamingLoopbackProbe.Run(args[1]);
         if (args.Length == 1 && args[0] == "--streaming-native-api")
