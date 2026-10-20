@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'scripts/**'
+      - 'deploy/*interfax*'
       - 'public/mirkam/**'
       - 'package.json'
       - 'requirements-document.txt'
@@ -30,3 +31,5 @@ jobs:
         run: python3 -m pip install -r requirements-document.txt
       - name: Run service, UI, MIME and read-only mailbox tests without provider credentials
         run: npm test
+      - name: Check read-only InterFAX verification and private setup without credentials
+        run: python3 scripts/provider-tests/interfax-access.test.py

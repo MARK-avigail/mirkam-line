@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Configure the fax pilot on the VPS; no network request or fax is sent."""
+"""Verify account access with GET, then configure the pilot; no fax is sent."""
 import getpass
+import argparse
 import os
 import re
 import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from interfax_access import AccessError, verify_account
 
 
-def main():
+def main(credentials_only=False):
     if os.geteuid() != 0:
         raise SystemExit('Run on the VPS as root.')
     target = Path('/opt/mirkam-private/runtime.env')
@@ -17,13 +19,18 @@ def main():
         raise SystemExit('Existing private runtime environment is required.')
     username = getpass.getpass('InterFAX API username (hidden): ')
     password = getpass.getpass('InterFAX API password (hidden): ')
-    number = input('Approved test fax number in +country format: ').strip()
     if not username or ':' in username or not password or any(c in username+password for c in '\r\n\x00'):
         raise SystemExit('Invalid credentials; nothing changed.')
-    if not re.fullmatch(r'\+[1-9][0-9]{7,14}', number):
-        raise SystemExit('Invalid test fax number; nothing changed.')
-    values = {'MIRKAM_FAX_PROVIDER': 'interfax', 'INTERFAX_USERNAME': username,
-              'INTERFAX_PASSWORD': password, 'MIRKAM_FAX_TEST_NUMBER': number}
+    try:
+        verify_account(username, password)
+    except AccessError as error:
+        raise SystemExit(str(error) + ': nothing changed; no fax sent.') from None
+    values = {'INTERFAX_USERNAME': username, 'INTERFAX_PASSWORD': password}
+    if not credentials_only:
+        number = input('Approved test fax number in +country format: ').strip()
+        if not re.fullmatch(r'\+[1-9][0-9]{7,14}', number):
+            raise SystemExit('Invalid test fax number; nothing changed.')
+        values.update({'MIRKAM_FAX_PROVIDER': 'interfax', 'MIRKAM_FAX_TEST_NUMBER': number})
     lines = target.read_text().splitlines()
     lines = [line for line in lines if line.split('=', 1)[0].strip() not in values]
     lines += [key+'='+value for key, value in values.items()]
@@ -41,7 +48,9 @@ def main():
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
-    print('FAX_PILOT_CONFIG_READY: application restart required; no fax sent or account access verified.')
+    print('FAX_ACCOUNT_ACCESS_OK: '+('credentials saved; test destination was not changed.' if credentials_only else 'pilot configuration saved.')+' Application restart required to load settings. No fax sent or delivery verified.')
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--credentials-only', action='store_true')
+    main(parser.parse_args().credentials_only)
