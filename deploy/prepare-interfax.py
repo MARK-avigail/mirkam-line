@@ -32,7 +32,7 @@ def main(credentials_only=False, pilot=False):
             raise SystemExit('Invalid test fax number; nothing changed.')
         values.update({'MIRKAM_FAX_PROVIDER': 'interfax', 'MIRKAM_FAX_MODE': 'pilot', 'MIRKAM_FAX_TEST_NUMBER': number})
     elif not credentials_only:
-        values.update({'MIRKAM_FAX_PROVIDER': 'interfax', 'MIRKAM_FAX_MODE': 'live'})
+        values.update({'MIRKAM_FAX_PROVIDER': 'interfax', 'MIRKAM_FAX_MODE': 'live', 'MIRKAM_FAX_INBOUND_ENABLED': 'true'})
     lines = target.read_text().splitlines()
     lines = [line for line in lines if line.split('=', 1)[0].strip() not in values]
     lines += [key+'='+value for key, value in values.items()]
@@ -50,7 +50,7 @@ def main(credentials_only=False, pilot=False):
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
-    print('FAX_ACCOUNT_ACCESS_OK: '+('credentials saved; delivery mode was not changed.' if credentials_only else ('pilot configuration saved.' if pilot else 'subscription sending configuration saved.'))+' Application restart required to load settings. No fax sent or delivery verified. Incoming fax is not configured by this command.')
+    print('FAX_ACCOUNT_ACCESS_OK: '+('credentials saved; delivery mode was not changed.' if credentials_only else ('pilot configuration saved.' if pilot else 'subscription sending configuration saved.'))+' Application restart required to load settings. No fax sent or delivery verified. Incoming account access and delivery still require verification.')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

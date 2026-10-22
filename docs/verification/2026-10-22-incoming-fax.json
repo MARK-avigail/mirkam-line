@@ -1,0 +1,12 @@
+{
+  "date": "2026-10-22",
+  "nodeTests": 3316,
+  "nodeFailures": 0,
+  "pythonMailTests": 16,
+  "pythonInterfaxTests": 12,
+  "newIncomingFaxTests": 18,
+  "providerAccountVerified": false,
+  "liveFaxReceived": false,
+  "serverInstalled": false,
+  "scope": "npm test; mocked provider and HTTP/UI harness, encrypted temporary local store; real provider docs only"
+}

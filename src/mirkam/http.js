@@ -1,3 +1,4 @@
+import {createFaxInbox} from './fax-inbox.js';
 import {createFamilyInbox} from './family-inbox.js';
 import {callHealth} from './call-health.js';
 import http from 'node:http';
@@ -24,7 +25,7 @@ function staff(req,service){
 }
 export function createMirkamServer(service){
   const voice=createVoice(service),voiceElements=createVoiceElements(service);
-  const familyInbox=createFamilyInbox(service);
+  const familyInbox=createFamilyInbox(service),faxInbox=createFaxInbox(service);
   const lineBusy=new Set();
   const voiceSamples=new Map();let sampleBusy=false,sampleAttempts=0,sampleWindow=0;
   const liveProvider=liveVoiceProvider();
@@ -154,6 +155,7 @@ export function createMirkamServer(service){
           const {code,...profile}=safeUser(account);
           const result={user:profile,contacts:service.store.list('contact',account.id),tickets:service.store.list('ticket',account.id)};
           if(auth.role==='owner')for(const [key,kind] of [['drafts','draft'],['messages','message'],['conversations','conversation'],['deliveries','delivery']])result[key]=service.store.list(kind,account.id);
+          if(auth.role==='owner')result.faxes=faxInbox.status().items.filter(item=>item.userId===account.id);
           return send({ok:true,...result});
         }
         if(dossier&&dossier[2]==='contacts'&&method==='POST')return send({ok:true,item:service.approveContact(dossier[1],data,actor)});
@@ -180,6 +182,23 @@ export function createMirkamServer(service){
         if(suffix==='destinations'&&method==='POST')return send({ok:true,item:service.setDestination(data,actor)});
         if(suffix==='contacts'&&method==='POST')return send({ok:true,item:service.approveContact(data.userId,data,actor)});
         if(suffix==='announcements'&&method==='POST')return send({ok:true,item:service.announce(data.text,actor)});
+        if(suffix==='fax-inbox'){
+          if(auth.role!=='owner')return send({ok:false},403);
+          if(!['GET','POST'].includes(method))return send({ok:false},405);
+          const result=method==='POST'?await faxInbox.sync():faxInbox.status();
+          const current=staff(req,service);if(current.role!=='owner'||current.actor!==actor)return send({ok:false},403);
+          return send({ok:true,...result});
+        }
+        const incomingFax=suffix.match(/^fax-inbox\/([a-f0-9]{64})\/(file|assign)$/);
+        if(incomingFax){
+          if(auth.role!=='owner')return send({ok:false},403);
+          if(incomingFax[2]==='assign'&&method==='POST')return send({ok:true,item:faxInbox.assign(incomingFax[1],data.userId,data.revision,actor)});
+          if(incomingFax[2]==='file'&&method==='GET'){
+            const file=faxInbox.file(incomingFax[1]);service.store.audit(actor,'fax.downloaded',incomingFax[1]);
+            res.writeHead(200,{'Content-Type':file.mime,'Content-Disposition':'attachment; filename="received-fax.'+(file.mime==='application/pdf'?'pdf':'tiff')+'"'});return res.end(file.content);
+          }
+          return send({ok:false},405);
+        }
         if(suffix==='family-inbox'){
           if(auth.role!=='owner')return send({ok:false,error:'אין הרשאה לתפקיד זה.'},403);
           if(!['GET','POST'].includes(method))return send({ok:false},405);
@@ -235,7 +254,7 @@ export function createMirkamServer(service){
       return send({ok:false,error:'לא נמצא.'},404);
     }catch(e){if(!res.headersSent)send({ok:false,error:e.message},e.status||400);else res.end();}
   });
-  server.on('listening',()=>familyInbox.start());
-  server.on('close',()=>{familyInbox.close();voiceElements.close();livePreview.dispose().catch(()=>console.error('LIVE_PREVIEW_CLOSE_UNCONFIRMED'));});
+  server.on('listening',()=>{familyInbox.start();faxInbox.start();});
+  server.on('close',()=>{familyInbox.close();faxInbox.close();voiceElements.close();livePreview.dispose().catch(()=>console.error('LIVE_PREVIEW_CLOSE_UNCONFIRMED'));});
   return server;
 }

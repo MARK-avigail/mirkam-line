@@ -263,7 +263,7 @@ async function openUser(id,tab='profile'){
  const r=await api('admin/users/'+id,'GET',undefined,true);selectedUserId=id;enterArea('management');const p=$('admin-pane');p.replaceChildren();backToUsers(p);
  p.append(node('h1',r.user.name),node('p',r.user.prison+' · '+(r.user.active===false?'מושעה':'פעיל')));
  const tabs=node('nav');tabs.className='profile-tabs';tabs.setAttribute('aria-label','תיק משתמש');const content=node('div');content.className='profile-content';
- const labels=[['profile','פרטים'],['drafts','עתירות'],['messages','הודעות'],['deliveries','משלוחים'],['conversations','שיחות'],['contacts','אנשי קשר'],['tickets','פניות']];
+ const labels=[['profile','פרטים'],['drafts','עתירות'],['messages','הודעות'],['deliveries','משלוחים'],...(adminRole==='owner'?[['faxes','פקסים שהתקבלו']]:[]),['conversations','שיחות'],['contacts','אנשי קשר'],['tickets','פניות']];
  const render=key=>{
   clearCredentials();content.replaceChildren();for(const b of tabs.children)b.setAttribute('aria-current',b.datasetTab===key?'page':'false');
   if(key==='profile'){
@@ -275,16 +275,39 @@ async function openUser(id,tab='profile'){
    return;
   }
   const items=r[key]||[];if(!items.length)content.append(node('p','אין פריטים בתיק זה.'));
-  for(const item of items){const card=node('section');card.className='profile-record';card.append(node('h3',key==='messages'?(item.direction==='incoming'?'תשובה מהמשפחה':'הודעה למשפחה'):(item.name||item.answers?.subject||item.status||'פריט')));if(key==='deliveries'){card.append(node('p',mailStatus(item.status)),node('p','אישור מסירת פקס אינו אישור קליטת מסמך בבית המשפט.'));if(item.channel==='fax'&&item.receipt?.provider==='interfax'&&item.receipt.providerId)button('בדיקת מצב הפקס',async()=>{await api('admin/users/'+id+'/deliveries/'+item.id+'/refresh','POST',{},true);await openUser(id,'deliveries');},card);}else if(key==='drafts')button('פתיחת העתירה',()=>showAdminDocuments(item.id,id),card);else if(key==='contacts'){const address=node('p',item.email);address.dir='ltr';card.append(address,node('p',item.approved&&item.active?'מאושר ופעיל':'לא פעיל'));}else card.append(node('pre',key==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):item.text||''));if(key==='messages'){card.append(node('p',mailStatus(item.status)));const c=(r.contacts||[]).find(c=>c.id===item.contactId);if(c)card.append(node('p',(item.direction==='incoming'?'מאת: ':'אל: ')+c.name));if(item.createdAt)card.append(node('p',new Date(item.createdAt).toLocaleString('he-IL')));if(c&&item.direction==='outgoing'&&['review','approved'].includes(item.status))button('פתיחת הודעה לבדיקה',()=>reviewAdminMail(id,item,c),card);}content.append(card);}
+  for(const item of items){const card=node('section');card.className='profile-record';card.append(node('h3',key==='messages'?(item.direction==='incoming'?'תשובה מהמשפחה':'הודעה למשפחה'):(item.name||item.answers?.subject||item.status||'פריט')));if(key==='faxes'){card.append(node('p','פקס שהתקבל · '+item.pages+' עמודים'));button('הורדת המסמך המקורי',()=>downloadIncomingFax(item),card);}else if(key==='deliveries'){card.append(node('p',mailStatus(item.status)),node('p','אישור מסירת פקס אינו אישור קליטת מסמך בבית המשפט.'));if(item.channel==='fax'&&item.receipt?.provider==='interfax'&&item.receipt.providerId)button('בדיקת מצב הפקס',async()=>{await api('admin/users/'+id+'/deliveries/'+item.id+'/refresh','POST',{},true);await openUser(id,'deliveries');},card);}else if(key==='drafts')button('פתיחת העתירה',()=>showAdminDocuments(item.id,id),card);else if(key==='contacts'){const address=node('p',item.email);address.dir='ltr';card.append(address,node('p',item.approved&&item.active?'מאושר ופעיל':'לא פעיל'));}else card.append(node('pre',key==='conversations'?(item.messages||[]).map(m=>m.text).join('\n'):item.text||''));if(key==='messages'){card.append(node('p',mailStatus(item.status)));const c=(r.contacts||[]).find(c=>c.id===item.contactId);if(c)card.append(node('p',(item.direction==='incoming'?'מאת: ':'אל: ')+c.name));if(item.createdAt)card.append(node('p',new Date(item.createdAt).toLocaleString('he-IL')));if(c&&item.direction==='outgoing'&&['review','approved'].includes(item.status))button('פתיחת הודעה לבדיקה',()=>reviewAdminMail(id,item,c),card);}content.append(card);}
   if(key==='messages'&&adminRole==='owner')button('כתיבת הודעה',()=>composeAdminMail(id,r.contacts||[]),content);
   if(key==='contacts')button('הוספת איש קשר ואישורו',()=>openContactForm(id),content);
  };
  for(const [key,label] of labels){if(key!=='profile'&&!Object.hasOwn(r,key))continue;const b=node('button',label);b.type='button';b.datasetTab=key;b.onclick=()=>render(key);tabs.append(b);}
  p.append(tabs,content);render(tab);reveal(p);
 }
+async function downloadIncomingFax(item){
+ const blob=await api('admin/fax-inbox/'+item.id+'/file','GET',undefined,true,true),url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download='received-fax.'+(item.mime==='application/pdf'?'pdf':'tiff');a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
+async function showFaxInbox(){
+ const [result,users]=await Promise.all([api('admin/fax-inbox','GET',undefined,true),api('admin/users','GET',undefined,true)]);
+ const p=$('admin-pane');p.replaceChildren();p.append(node('h2','פקסים שהתקבלו'),node('p','בדקו את המסמך המקורי ובחרו את המשתמש שאליו הוא שייך.'));
+ button('בדיקת פקסים נכנסים',async()=>{await api('admin/fax-inbox','POST',{},true);await showFaxInbox();},p);
+ if(result.error)p.append(node('p','בדיקת הפקס האחרונה לא הושלמה. המסמכים שנקלטו נשמרו.'));
+ if(!result.configured)p.append(node('p','פרטי חשבון הפקס טרם הוגדרו בשרת.'));
+ if(result.scan?.olderPending)p.append(node('p','נותרו פקסים ישנים לסריקה. הבדיקה הבאה תמשיך מהם.'));
+ if(!result.items.length)p.append(node('p','עדיין לא נקלטו פקסים.'));
+ for(const item of result.items){
+  const card=node('section');card.className='profile-record';card.append(node('h3',item.userId?'פקס משויך':'פקס ממתין לשיוך'),node('p','שולח כפי שדווח: '+(item.sender||'לא צוין')+' · עמודים: '+item.pages));
+  button('הורדת המסמך המקורי',()=>downloadIncomingFax(item),card);
+  const select=document.createElement('select');select.setAttribute('aria-label','המשתמש שאליו שייך הפקס');const blank=node('option','בחירת משתמש');blank.value='';select.append(blank);
+  for(const user of users.items){const option=node('option',user.name+' · '+user.prison+' · '+(user.prisonerNumber||''));option.value=user.id;select.append(option);}select.value=item.userId||'';card.append(select);
+  button('אישור שיוך לתיק',async()=>{if(!select.value)throw Error('יש לבחור משתמש.');const user=users.items.find(u=>u.id===select.value);if(!window.confirm('לשייך את הפקס לתיק של '+user.name+' לאחר בדיקת המסמך?'))return;await api('admin/fax-inbox/'+item.id+'/assign','POST',{userId:select.value,revision:item.revision},true);await showFaxInbox();},card);
+  p.append(card);
+ }
+ reveal(p);
+}
 $('admin-status').onclick=()=>run(async()=>{
  const r=await api('admin/status','GET',undefined,true),p=$('admin-pane');
  p.replaceChildren(node('h2','חיבורים ומוכנות'),node('p','בדיקת הגדרות בלבד — אינה בדיקת שיחה או משלוח חי. תשלום על מנוי AI אינו מגדיר אוטומטית מפתח API בשרת.'));
+ if(adminRole==='owner')button('פקסים שהתקבלו',()=>showFaxInbox(),p);
  const rows=[['AI וניסוח',r.aiConfigured,'הגדרת מפתח API בשרת ובדיקת תשובה בעברית'],['מייל יוצא',r.emailConfigured,'שליחת הודעת בדיקה ואימות הגעתה'],['קו טלפוני',r.voiceConfigured,'הגדרת ספק וכתובת callback וביצוע שיחה אמיתית'],['פקס',r.faxConfigured,'חיבור מתאם ספק ואימות משלוח'],['תשלום',r.paymentConfigured,'חיבור ספק ואימות תהליך חיוב בהסכמה']];
  for(const [title,configured,next] of rows){const box=node('section');box.className='connection-card';box.append(node('h3',title),node('p',configured?'הגדרות קיימות · טרם אומת כאן בבדיקה חיה':'לא מוגדר'),node('p',next));p.append(box);}
  if(adminRole==='owner'){
