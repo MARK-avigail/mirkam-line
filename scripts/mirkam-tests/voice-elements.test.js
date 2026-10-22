@@ -20,6 +20,39 @@ function request(server,url,{method='GET',token,body,headers={}}={}){
 const secret='bridge-test-'.repeat(4);process.env.VOICE_ELEMENTS_BRIDGE_TOKEN=secret;
 const id='VE'+'1'.repeat(32);
 const step=(server,values={},query='',key=secret)=>request(server,'/voice-elements/step'+query,{method:'POST',body:new URLSearchParams({CallSid:id,...values}).toString(),headers:{authorization:'Bearer '+key}});
+test('overlapping callers keep audio, recordings and sessions separate when one hangs up',async t=>{
+ const {server,service,store}=fixture(t), ids=[id,'VE'+'2'.repeat(32)];
+ const users=[enroll(service),enroll(service,'987654321')];
+ for(let i=0;i<2;i++){
+  await step(server,{CallSid:ids[i]});
+  await step(server,{CallSid:ids[i],Digits:users[i].user.code},'?input='+store.get('call',ids[i]).inputNonce);
+  await step(server,{CallSid:ids[i],Digits:users[i].pin},'?input='+store.get('call',ids[i]).inputNonce);
+ }
+ const tokens=ids.map(call=>store.get('call',call).token);
+ const releases=new Map();
+ service.providers.speak=text=>new Promise(resolve=>releases.set(text,resolve));
+ const speech=(callId,text)=>request(server,'/voice-elements/speech',{method:'POST',body:{callId,text},headers:{authorization:'Bearer '+secret}});
+ const pending=[speech(ids[0],'תשובה אישית ראשונה'),speech(ids[1],'תשובה אישית שנייה')];
+ for(let n=0;n<100&&releases.size<2;n++)await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(releases.size,2,'both synthesis requests must actually overlap');
+ for(let i=0;i<2;i++)store.put('call',{...store.get('call',ids[i]),recordNonce:'nonce-'+i});
+ const recordings=await Promise.all(ids.map((call,i)=>request(server,'/voice-elements/record?call='+call+'&record=nonce-'+i,{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}})));
+ assert.deepEqual(recordings.map(r=>r.status),[200,200]);
+ assert.notEqual(recordings[0].body.recording,recordings[1].body.recording);
+ assert.equal((await step(server,{CallSid:ids[1],RecordingUrl:recordings[0].body.recording},'?record=nonce-0')).status,403);
+ assert.equal((await request(server,'/voice-elements/end',{method:'POST',body:{callId:ids[0]},headers:{authorization:'Bearer '+secret}})).status,200);
+ assert.throws(()=>service.identity.authenticate(tokens[0]));
+ assert.equal(service.identity.authenticate(tokens[1]).user.id,users[1].user.id);
+ assert.equal(store.get('bridge-audio',recordings[0].body.recording),null);
+ assert.equal(store.get('bridge-audio',recordings[1].body.recording).callId,ids[1]);
+ releases.get('תשובה אישית שנייה')(Buffer.from('second-only'));
+ assert.equal((await pending[1]).text,'second-only');
+ releases.get('תשובה אישית ראשונה')(Buffer.from('first-only'));
+ const endedResponse=await pending[0];assert.equal(endedResponse.status,400);assert.ok(!endedResponse.text.includes('first-only'));
+ assert.equal(store.get('call',ids[0]).phase,'ended');
+ assert.equal((await step(server,{CallSid:ids[1]})).status,200);
+ assert.notEqual(store.get('call',ids[1]).phase,'ended');
+});
 test('bridge requires own secret and never opens Twilio signature bypass',async t=>{
  const {server,store}=fixture(t);
  assert.equal((await step(server,{},'','bad')).status,403);assert.equal(store.list('call').length,0);

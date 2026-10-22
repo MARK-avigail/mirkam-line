@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-22",
+  "node": {
+    "tests": 3298,
+    "pass": 3298,
+    "fail": 0,
+    "skipped": 0,
+    "cancelled": 0
+  },
+  "pythonMailTests": 16,
+  "pythonInterfaxTests": 12,
+  "liveCallsTested": false,
+  "liveFaxTested": false,
+  "productionInstalled": false,
+  "scope": "npm test plus separate InterFAX setup tests; providers replaced, temporary local stores"
+}

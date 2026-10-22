@@ -37,7 +37,18 @@ export class Store {
     if(result.changes!==1)throw new Conflict();return r;
   }
   remove(kind,id) { this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id); }
-  atomic(fn) { this.db.exec('BEGIN IMMEDIATE');try{const result=fn();if(result&&typeof result.then==='function')throw Error('Transactions must not span async work');this.db.exec('COMMIT');return result;}catch(e){this.db.exec('ROLLBACK');throw e;} }
+  atomic(fn) {
+    const depth=this.transactionDepth||0,point='mirkam_atomic_'+depth;
+    this.db.exec(depth?'SAVEPOINT '+point:'BEGIN IMMEDIATE');this.transactionDepth=depth+1;
+    try{
+      const result=fn();if(result&&typeof result.then==='function')throw Error('Transactions must not span async work');
+      this.db.exec(depth?'RELEASE SAVEPOINT '+point:'COMMIT');return result;
+    }catch(e){
+      if(depth){this.db.exec('ROLLBACK TO SAVEPOINT '+point);this.db.exec('RELEASE SAVEPOINT '+point);}
+      else this.db.exec('ROLLBACK');
+      throw e;
+    }finally{this.transactionDepth=depth;}
+  }
   owned(kind,id,owner) { const r=this.get(kind,id);if(!r||r.owner!==owner)throw Error('הפריט לא נמצא.');return r; }
   audit(actor,event,target) { return this.create('audit','staff',{actor,event,target}); }
   backup(destination) {

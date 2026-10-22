@@ -10,11 +10,14 @@ export function faxNumber(value){
   return result;
 }
 export function interfaxProvider({env=process.env,request=(...args)=>fetch(...args)}={}){
-  const configured=()=>env.MIRKAM_FAX_PROVIDER==='interfax'&&Boolean(env.INTERFAX_USERNAME&&env.INTERFAX_PASSWORD&&env.MIRKAM_FAX_TEST_NUMBER);
-  function headers(){if(!configured())throw Error('חיבור הפקס לניסיון טרם הוגדר.');if(env.INTERFAX_USERNAME.includes(':'))throw Error('שם משתמש הפקס אינו תקין.');return {Authorization:'Basic '+Buffer.from(env.INTERFAX_USERNAME+':'+env.INTERFAX_PASSWORD).toString('base64'),Accept:'application/json'};}
+  const credentials=()=>env.MIRKAM_FAX_PROVIDER==='interfax'&&Boolean(env.INTERFAX_USERNAME&&env.INTERFAX_PASSWORD);
+  // Existing deployments keep their pilot restriction until explicitly configured.
+  const mode=()=>env.MIRKAM_FAX_MODE||'pilot';
+  const configured=()=>credentials()&&(mode()==='live'||mode()==='pilot'&&Boolean(env.MIRKAM_FAX_TEST_NUMBER));
+  function headers(){if(!credentials())throw Error('חיבור חשבון הפקס טרם הוגדר.');if(env.INTERFAX_USERNAME.includes(':'))throw Error('שם משתמש הפקס אינו תקין.');return {Authorization:'Basic '+Buffer.from(env.INTERFAX_USERNAME+':'+env.INTERFAX_PASSWORD).toString('base64'),Accept:'application/json'};}
   function validate(target,attachments=[]){
-    headers();const to=faxNumber(target.fax);
-    if(to!==faxNumber(env.MIRKAM_FAX_TEST_NUMBER))throw Error('הפקס מוגבל כרגע למספר הניסיון שהוגדר במשרד.');
+    headers();if(!configured())throw Error('הגדרת משלוח הפקס אינה מלאה או אינה תקינה.');const to=faxNumber(target.fax);
+    if(mode()==='pilot'&&to!==faxNumber(env.MIRKAM_FAX_TEST_NUMBER))throw Error('הפקס מוגבל כרגע למספר הניסיון שהוגדר במשרד.');
     let size=0;
     for(const a of attachments){if(!['application/pdf','image/png','image/jpeg'].includes(a.mime))throw Error('סוג נספח לא נתמך בפקס.');size+=Buffer.from(a.base64||'','base64').length;}
     if(size>MAX_BYTES)throw Error('חבילת הפקס גדולה מדי.');

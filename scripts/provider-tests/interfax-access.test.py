@@ -109,4 +109,27 @@ class Account(unittest.TestCase):
             self.assertEqual(backup.read_bytes(),original)
             self.assertEqual(backup.stat().st_mode & 0o777,0o600)
 
+    def test_subscription_setup_needs_no_test_number_and_preserves_other_keys(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'runtime.env'
+            original=b'EXISTING_KEY=unchanged\nMIRKAM_FAX_MODE=pilot\nMIRKAM_FAX_TEST_NUMBER=+97231234567\n'
+            target.write_bytes(original)
+            with patch.object(prepare.os,'geteuid',return_value=0),patch.object(prepare,'Path',return_value=target),patch.object(prepare.getpass,'getpass',side_effect=['api-user','PRIVATE']),patch('builtins.input',side_effect=AssertionError('no test number required')),patch.object(prepare,'verify_account',return_value=True),patch('builtins.print'):
+                prepare.main()
+            values=access.read_runtime(target)
+            self.assertEqual(values['MIRKAM_FAX_MODE'],'live')
+            self.assertEqual(values['MIRKAM_FAX_PROVIDER'],'interfax')
+            self.assertEqual(values['EXISTING_KEY'],'unchanged')
+            self.assertEqual(target.stat().st_mode & 0o777,0o600)
+            result=access.check(values,self.success)
+            self.assertTrue(result['sendingEnabled'])
+            self.assertFalse(result['pilotEnabled'])
+            self.assertFalse(result['incomingVerified'])
+            self.assertEqual(next(Path(folder).glob('runtime.env.before-fax-*')).read_bytes(),original)
+
+    def test_subscription_check_without_target_and_invalid_mode(self):
+        values={'INTERFAX_USERNAME':'api-user','INTERFAX_PASSWORD':'PRIVATE','MIRKAM_FAX_PROVIDER':'interfax','MIRKAM_FAX_MODE':'live'}
+        self.assertTrue(access.check(values,self.success)['sendingEnabled'])
+        self.assertFalse(access.check({**values,'MIRKAM_FAX_MODE':'typo'},self.success)['sendingEnabled'])
+
 if __name__ == '__main__': unittest.main()

@@ -24,3 +24,23 @@ function fixture(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fax-service-
 test('status refresh enforces ownership and preserves accepted receipt on failure',async t=>{const {service,store,d}=fixture(t);let calls=0;service.providers.faxStatus=async()=>{calls++;throw Error('offline');};await assert.rejects(service.refreshFax(d.id,'owner-b'));assert.equal(calls,0);await assert.rejects(service.refreshFax(d.id,'owner-a'));assert.equal(store.get('delivery',d.id).status,'accepted_by_fax_provider');});
 test('revoked access after status request prevents update',async t=>{const {service,store,d}=fixture(t);service.providers.faxStatus=async()=>({providerId:'42',status:'fax_delivered'});await assert.rejects(service.refreshFax(d.id,'owner-a',()=>{throw Error('revoked');}));assert.equal(store.get('delivery',d.id).status,'accepted_by_fax_provider');});
 test('final delivery is saved and repeat check does not send or query again',async t=>{const {service,d}=fixture(t);let calls=0;service.providers.faxStatus=async()=>{calls++;return {providerId:'42',status:'fax_delivered',delivered:true};};assert.equal((await service.refreshFax(d.id,'owner-a')).status,'fax_delivered');await service.refreshFax(d.id,'owner-a');assert.equal(calls,1);});
+
+test('paid subscription sends to approved destinations without a test number',async()=>{
+ const paid={...env,MIRKAM_FAX_MODE:'live'};delete paid.MIRKAM_FAX_TEST_NUMBER;
+ let calls=0;const p=interfaxProvider({env:paid,request:async(url)=>{calls++;assert.equal(url.searchParams.get('faxNumber'),'+97239999999');return new Response(null,{status:201,headers:{location:'/outbound/faxes/42'}});}});
+ assert.equal(p.configured(),true);
+ assert.equal((await p.send({...requestData,target:{fax:'039999999'}})).status,'accepted_by_fax_provider');assert.equal(calls,1);
+});
+test('explicit live mode overrides an old pilot number',()=>{
+ const p=interfaxProvider({env:{...env,MIRKAM_FAX_MODE:'live'}});
+ assert.equal(p.validate({fax:'039999999'}),'+97239999999');
+});
+test('invalid delivery mode fails closed even with old pilot settings',()=>{
+ assert.equal(interfaxProvider({env:{...env,MIRKAM_FAX_MODE:'liv'}}).configured(),false);
+});
+test('receipt lookup remains available when pilot destination configuration is absent',async()=>{
+ const e={...env};delete e.MIRKAM_FAX_TEST_NUMBER;
+ const p=interfaxProvider({env:e,request:async()=>Response.json({id:42,status:0})});
+ assert.equal((await p.status('42')).status,'fax_delivered');
+ assert.equal(p.configured(),false);
+});

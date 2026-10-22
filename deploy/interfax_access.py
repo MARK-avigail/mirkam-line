@@ -95,8 +95,13 @@ def check(values, opener=None):
         verify_account(values['INTERFAX_USERNAME'], values['INTERFAX_PASSWORD'], opener)
         number = values.get('MIRKAM_FAX_TEST_NUMBER', '')
         valid_number = bool(re.fullmatch(r'\+[1-9][0-9]{7,14}', number))
+        mode = values.get('MIRKAM_FAX_MODE') or 'pilot'
+        provider = values.get('MIRKAM_FAX_PROVIDER') == 'interfax'
         return {**result, 'accountVerified': True, 'testDestinationConfigured': valid_number,
-                'pilotEnabled': values.get('MIRKAM_FAX_PROVIDER') == 'interfax' and valid_number,
+                'deliveryMode': mode if mode in ('live', 'pilot') else 'invalid',
+                'pilotEnabled': provider and mode == 'pilot' and valid_number,
+                'sendingEnabled': provider and (mode == 'live' or mode == 'pilot' and valid_number),
+                'incomingVerified': False,
                 'code': 'FAX_ACCOUNT_ACCESS_OK'}
     except AccessError as error:
         return {**result, 'code': str(error)}

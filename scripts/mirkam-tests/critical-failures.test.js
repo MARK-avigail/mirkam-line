@@ -23,3 +23,34 @@ test('PIN reset storage failure rolls back PIN and session changes together',t=>
 test('registration audit failure does not strand an account without delivered credentials',t=>{const {store,service}=fixture(t);store.audit=()=>{throw Error('injected audit failure');};assert.throws(()=>service.identity.register({name:'test',identity:'123456789',prison:'test',prisonerNumber:'1'},'owner'));assert.equal(store.list('user').length,0);});
 test('failed suspension audit rolls back account and revoked sessions',t=>{const {store,service}=fixture(t);const u=service.identity.register({name:'test',identity:'123456789',prison:'test',prisonerNumber:'1'},'owner'),login=service.identity.login(u.user.code,u.pin);store.audit=()=>{throw Error('audit unavailable');};assert.throws(()=>service.identity.suspend(u.user.id,false,'owner'));assert.equal(store.get('user',u.user.id).active,true);assert.equal(service.identity.authenticate(login.token).user.id,u.user.id);});
 test('successful reset commits new PIN, audit and session revocation',t=>{const {store,service}=fixture(t);const u=service.identity.register({name:'test',identity:'123456789',prison:'test',prisonerNumber:'1'},'owner'),login=service.identity.login(u.user.code,u.pin);const changed=service.identity.reset(u.user.id,'owner');assert.throws(()=>service.identity.authenticate(login.token));assert.throws(()=>service.identity.login(u.user.code,u.pin));assert.ok(service.identity.login(u.user.code,changed.pin).token);assert.equal(store.list('audit').filter(x=>x.event==='user.pin-reset').length,1);});
+
+test('failed contact approval audit never leaves an approved recipient behind',t=>{
+ const {store,service}=fixture(t),u=service.identity.register({name:'test',identity:'123456789',prison:'test',prisonerNumber:'1'},'owner');
+ const audit=store.audit.bind(store);store.audit=()=>{throw Error('audit unavailable');};
+ assert.throws(()=>service.approveContact(u.user.id,{name:'family',email:'family@example.test'},'owner'));
+ assert.equal(service.contacts(u.user.id).length,0);
+ store.audit=audit;assert.ok(service.approveContact(u.user.id,{name:'family',email:'family@example.test'},'owner').id);
+});
+test('failed incoming reply audit rolls back message and retry records it once',t=>{
+ const {store,service}=fixture(t),u=service.identity.register({name:'test',identity:'123456789',prison:'test',prisonerNumber:'1'},'owner');
+ const contact=service.approveContact(u.user.id,{name:'family',email:'family@example.test'},'owner');
+ const message=service.compose(u.user.id,contact.id,'hello'),audit=store.audit.bind(store);
+ store.audit=()=>{throw Error('audit unavailable');};
+ assert.throws(()=>service.receiveReply(message.id,contact.email,'reply','event-1','owner'));
+ assert.equal(store.list('message',u.user.id).filter(m=>m.direction==='incoming').length,0);
+ store.audit=audit;
+ const reply=service.receiveReply(message.id,contact.email,'reply','event-1','owner');
+ assert.equal(service.receiveReply(message.id,contact.email,'reply','event-1','owner').id,reply.id);
+ assert.equal(store.list('audit').filter(a=>a.event==='message.received').length,1);
+});
+test('outer rollback includes a successful nested transaction',t=>{
+ const {store}=fixture(t);
+ assert.throws(()=>store.atomic(()=>{store.atomic(()=>store.create('probe','test',{id:'nested'}));throw Error('outer failed');}));
+ assert.equal(store.get('probe','nested'),null);
+ store.atomic(()=>store.create('probe','test',{id:'next'}));assert.ok(store.get('probe','next'));
+});
+test('caught nested rollback preserves outer work without leaking inner changes',t=>{
+ const {store}=fixture(t);
+ store.atomic(()=>{store.create('probe','test',{id:'outer'});assert.throws(()=>store.atomic(()=>{store.create('probe','test',{id:'inner'});throw Error('inner failed');}));store.create('probe','test',{id:'after'});});
+ assert.equal(store.get('probe','inner'),null);assert.ok(store.get('probe','outer'));assert.ok(store.get('probe','after'));
+});
