@@ -241,7 +241,7 @@ test('configured Voice Elements and fax providers are reflected without claiming
 
 test('processing announces once and polls without repeating paid speech',async t=>{
  const {server,store}=await prepared(t,'processing');
- for(let i=0;i<8;i++){const r=await step(server);assert.equal(r.status,200);if(i===0)assert.match(r.text,/רק רגע/);else assert.doesNotMatch(r.text,/<Say/);assert.match(r.text,/<Pause length="1"/);assert.doesNotMatch(r.text,/<Hangup/);}
+ for(let i=0;i<8;i++){const r=await step(server);assert.equal(r.status,200);if(i===0)assert.match(r.text,/רק רגע/);else assert.doesNotMatch(r.text,/<Say/);assert.match(r.text,/<Gather[^>]*timeout="1"/);assert.doesNotMatch(r.text,/<Hangup/);}
  assert.equal(store.get('call',id).processingNotified,true);
 });
 test('fixed prompts share a generation while personal speech is never cached',async t=>{
@@ -254,7 +254,7 @@ test('fixed prompts share a generation while personal speech is never cached',as
 test('failed synthesis does not poison fixed prompt cache',async t=>{
  const {server,service}=await prepared(t);let calls=0;service.providers.speak=async()=>{calls++;if(calls===1)throw Error('unavailable');return wav();};
  const speak=()=>request(server,'/voice-elements/speech',{method:'POST',body:{callId:id,text:'רק רגע.'},headers:{authorization:'Bearer '+secret}});
- assert.equal((await speak()).status,400);assert.equal((await speak()).status,200);assert.equal((await speak()).status,200);assert.equal(calls,2);
+ assert.equal((await speak()).status,503);assert.equal((await speak()).status,200);assert.equal((await speak()).status,200);assert.equal(calls,2);
 });
 test('telephone context reaches the answer provider and failed answer clears stale speech',async t=>{
  const {server,service,store}=await prepared(t);let seen;service.providers.transcribe=async()=> 'שאלה קצרה';service.providers.chat=async(messages,options)=>{seen=options;throw Error('unavailable');};
@@ -315,4 +315,35 @@ test('restart recovery clears old answer and approval context without changing s
  const after=store.get('call',id);assert.equal(after.phase,'family-review');assert.equal(after.jobId,null);
  for(const field of ['speech','inputNonce','recordNonce','messagePresented','deliveryPresented'])assert.equal(after[field],null);
  assert.equal(store.get('voice-job',job.id).status,'interrupted');assert.deepEqual(store.list('message'),savedBefore);
+});
+
+test('processing accepts return to menu and late answer cannot restore the old question',async t=>{
+ const {server,store,service}=await prepared(t);let release;
+ service.providers.transcribe=async()=> 'שאלה';service.providers.chat=()=>new Promise(r=>release=r);
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording},'?record=record');
+ for(let n=0;n<50&&!release;n++)await new Promise(r=>setImmediate(r));assert.ok(release);
+ const waiting=await step(server);assert.match(waiting.text,/<Gather/);
+ const nonce=store.get('call',id).inputNonce;assert.ok(nonce);
+ await step(server,{Digits:'8'},'?input='+nonce);assert.equal(store.get('call',id).phase,'main');
+ release('תשובה שהתעכבה');for(let n=0;n<30;n++)await new Promise(r=>setImmediate(r));
+ assert.equal(store.get('call',id).phase,'main');assert.equal(store.get('call',id).speech,null);
+});
+test('processing accepts exit instead of ignoring the caller',async t=>{
+ const {server,store}=await prepared(t,'processing');await step(server);
+ const r=await step(server,{Digits:'7'},'?input='+store.get('call',id).inputNonce);assert.match(r.text,/<Hangup/);
+});
+test('speech failure records only a safe diagnostic code and returns a retryable service failure',async t=>{
+ const {server,service,store}=await prepared(t);
+ service.providers.speak=async()=>{throw Object.assign(Error('PRIVATE_PROVIDER_BODY'),{providerStatus:429});};
+ const r=await request(server,'/voice-elements/speech',{method:'POST',body:{callId:id,text:'טקסט אישי'},headers:{authorization:'Bearer '+secret}});
+ assert.equal(r.status,503);assert.equal(store.get('call',id).speechFailureCode,'http-429');assert.doesNotMatch(r.text,/PRIVATE_PROVIDER_BODY/);
+ await request(server,'/voice-elements/end',{method:'POST',body:{callId:id,diagnostics:{reason:'error',stage:'speech-generate',durationSeconds:20}},headers:{authorization:'Bearer '+secret}});
+ const report=await request(server,'/api/admin/voice-health',{token:admin});assert.equal(report.body.recent[0].speechFailureCode,'http-429');assert.doesNotMatch(report.text,/PRIVATE_PROVIDER_BODY|טקסט אישי/);
+});
+test('fixed main and branch menus reuse audio without caching personal greetings',async()=>{
+ const {fixedSpeechCache}=await import('../../src/mirkam/speech-cache.js');const {BRANCHES}=await import('../../src/mirkam/workflow.js');const cache=fixedSpeechCache();let calls=0;const generate=async()=>{calls++;return wav();};
+ const menus=[BRANCHES.map(b=>`${b.title}, הקישו ${b.digit}`).join('. '),...BRANCHES.map(b=>b.children.map(s=>`${s.title}, הקישו ${s.digit}`).join('. '))];
+ for(const text of menus){await cache.get(text,generate);await cache.get(text,generate);}assert.equal(calls,menus.length);
+ await cache.get('שלום שם פרטי. '+menus[0],generate);await cache.get('שלום שם פרטי. '+menus[0],generate);assert.equal(calls,menus.length+2);
 });

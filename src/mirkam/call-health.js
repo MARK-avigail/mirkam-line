@@ -12,6 +12,6 @@ export function callDiagnostics(value){
   return Object.keys(result).length?result:null;
 }
 export function callHealth(store){
-  const recent=store.list('call').filter(c=>Number.isSafeInteger(c.endedAt)&&c.diagnostics).sort((a,b)=>b.endedAt-a.endedAt).slice(0,10).map(c=>({endedAt:c.endedAt,...callDiagnostics(c.diagnostics),...(Number.isSafeInteger(c.speechRecoveries)?{speechRecoveries:c.speechRecoveries}:{}),...(Number.isSafeInteger(c.processingMs)?{processingMs:c.processingMs}:{})}));
+  const recent=store.list('call').filter(c=>Number.isSafeInteger(c.endedAt)&&c.diagnostics).sort((a,b)=>b.endedAt-a.endedAt).slice(0,10).map(c=>({endedAt:c.endedAt,...callDiagnostics(c.diagnostics),...(Number.isSafeInteger(c.speechRecoveries)?{speechRecoveries:c.speechRecoveries}:{}),...(Number.isSafeInteger(c.processingMs)?{processingMs:c.processingMs}:{}),...(['timeout','network','http-401','http-403','http-429','local-limit','provider-error'].includes(c.speechFailureCode)?{speechFailureCode:c.speechFailureCode}:{})}));
   return {recent,liveVerified:false};
 }

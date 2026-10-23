@@ -1,6 +1,9 @@
+import {BRANCHES} from './workflow.js';
 // Fixed service prompts only. Never retain personal greetings, answers or documents.
 export const RECOVERY_PROMPT='יש תקלה זמנית בהשמעה. נחזור לתפריט, ותוכלו לנסות שוב.';
-const FIXED=new Set([RECOVERY_PROMPT,
+const MAIN_MENU=BRANCHES.map(b=>`${b.title}, הקישו ${b.digit}`).join('. ');
+const FIXED=new Set([RECOVERY_PROMPT,MAIN_MENU,MAIN_MENU+'. לפיקוח הקישו 6.',
+ ...BRANCHES.map(b=>b.children.map(s=>`${s.title}, הקישו ${s.digit}`).join('. ')),
  'רק רגע.','הבקשה בעיבוד.',
  'עכשיו הקישו את הקוד האישי, שש ספרות.',
  'ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות.',

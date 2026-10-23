@@ -84,7 +84,17 @@ export function createVoice(service,transport={}){
       }else{
         let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id,token=c.token,validate=()=>service.identity.authenticate(token);
         if(['delivery-channel','delivery-confirm'].includes(c.phase)&&(c.reviewCompleted!==true||c.reviewHash!==reviewHash(c.draftId,uid))){c=save({...c,phase:'draft',reviewHash:null,reviewCompleted:false,reviewIndex:0});digit='';}
-        if(c.phase==='processing'){out=(c.processingNotified?'':say('רק רגע.'))+'<Pause length="1"/>'+redirect();c={...c,processingNotified:true};}
+        if(c.phase==='processing'&&['7','8'].includes(digit)){
+          // Detach the call from this job. Already approved delivery may finish,
+          // but its late result must not move the caller back into the old flow.
+          c=save({...c,phase:'main',jobId:null,speech:null,error:null,recordNonce:null,messagePresented:null,deliveryPresented:null});
+          out=digit==='7'?say('העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>':redirect();
+        }
+        else if(c.phase==='processing'){
+          c={...c,inputNonce:randomUUID()};
+          out=`<Gather numDigits="1" finishOnKey="" timeout="1" action="/voice/step?input=${c.inputNonce}" method="POST">${c.processingNotified?'':say('רק רגע.')}</Gather>`+redirect();
+          c={...c,processingNotified:true};
+        }
         else if(digit==='7'){c=save({...c,phase:'main',draftId:null});out=say('העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
         else if(digit==='*'){out=gather('לשמירה ויציאה הקישו 7. לחזרה לתפריט הראשי 8. לעזרה 9. לדילוג על פרט רשות 0. בזמן הקלטה סולמית מסיימת את ההקלטה.');}
         else if(digit==='8'){c=save({...c,phase:'main',speech:null,error:null,recordNonce:null,messagePresented:null,deliveryPresented:null});out=redirect();}

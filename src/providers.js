@@ -10,7 +10,7 @@ export async function requestBytes(url, options = {}, limit = 24 * 1024 * 1024) 
   let response, reader, complete=false;
   try {
     response = await fetch(url, { ...options, redirect: 'error', signal: controller.signal });
-    if (!response.ok) throw new Error('שירות חיצוני החזיר שגיאה (' + response.status + ').');
+    if (!response.ok) throw Object.assign(new Error('שירות חיצוני החזיר שגיאה (' + response.status + ').'),{providerStatus:response.status});
     if (Number(response.headers.get('content-length')) > limit) throw new Error('תשובת השירות גדולה מדי.');
     reader = response.body.getReader();
     const chunks = []; let size = 0;
@@ -23,9 +23,9 @@ export async function requestBytes(url, options = {}, limit = 24 * 1024 * 1024) 
     }
     return Buffer.concat(chunks);
   } catch (e) {
-    if (e.name === 'AbortError') throw new Error('השירות לא ענה בזמן. לא נשמרה תשובה חדשה.');
+    if (e.name === 'AbortError') throw Object.assign(new Error('השירות לא ענה בזמן. לא נשמרה תשובה חדשה.'),{providerCode:'timeout'});
     if (e.message?.startsWith('שירות') || e.message?.startsWith('תשובת')) throw e;
-    throw new Error('לא ניתן להתחבר לשירות החיצוני.');
+    throw Object.assign(new Error('לא ניתן להתחבר לשירות החיצוני.'),{providerCode:'network'});
   } finally {
     if(!complete){try{if(reader)await reader.cancel();else await response?.body?.cancel();}catch{}}
     reader?.releaseLock();clearTimeout(timer);

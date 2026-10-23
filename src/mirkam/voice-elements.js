@@ -104,7 +104,13 @@ export function createVoiceElements(service){
         const c=callPattern.test(data.callId||'')&&store.get('call',data.callId);
         if(!c||c.phase==='ended'||typeof data.text!=='string'||!data.text.trim()||data.text.length>4000)throw Error('Invalid speech request');
         if(c.token)service.identity.authenticate(c.token);
-        const audio=await synthesize(data.text);
+        let audio;
+        try{audio=await synthesize(data.text);}catch(error){
+          const current=store.get('call',data.callId);
+          const code=error.providerCode==='timeout'?'timeout':error.providerCode==='network'?'network':[401,403,429].includes(error.providerStatus)?'http-'+error.providerStatus:error.status===429?'local-limit':'provider-error';
+          if(current&&current.phase!=='ended')store.put('call',{...current,speechFailureCode:code,speechFailureAt:Date.now(),speechFailureCount:(current.speechFailureCount||0)+1});
+          throw Object.assign(Error('Speech provider unavailable'),{status:503});
+        }
         {
           const current=store.get('call',data.callId);
           if(!current||current.phase==='ended'||current.token!==c.token)throw Error('Call is no longer active');
@@ -114,7 +120,7 @@ export function createVoiceElements(service){
         }
       }
       return json({ok:false},404);
-    }catch(e){if(!res.headersSent)json({ok:false,error:'Voice bridge request failed'},[413,429].includes(e.status)?e.status:400);else res.end();}
+    }catch(e){if(!res.headersSent)json({ok:false,error:'Voice bridge request failed'},[413,429,503].includes(e.status)?e.status:400);else res.end();}
   };
   handler.close=()=>{clearInterval(cleanupTimer);speechCache.clear();};
   return handler;
