@@ -1,5 +1,6 @@
 import { createHmac,timingSafeEqual,createHash,randomUUID } from 'node:crypto';
 import { BRANCHES,TOPICS } from './workflow.js';
+import { PROCESSING_FAILURE_PROMPT,DELIVERY_FAILURE_PROMPT } from './speech-cache.js';
 import { transcribeTwilio } from '../ivr/stt.js';
 
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
@@ -26,7 +27,7 @@ export function createVoice(service,transport={}){
       store.put('call',{...current,...result,jobId:null,processingMs:Date.now()-j.createdAt});
     })).catch(()=>store.atomic(()=>{
       const current=store.get('call',c.id);
-      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:j.previous,jobId:null,speech:null,error:'העיבוד לא הושלם. התשובות שאושרו נשמרו. יש לבדוק מצב משלוח לפני ניסיון נוסף.'});
+      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:'job-error',retryPhase:j.previous==='draft-clarify'?'draft':(['chat','ticket','family-compose','draft'].includes(j.previous)?j.previous:null),jobId:null,speech:null,error:null,recordNonce:null,inputNonce:null});
       store.put('voice-job',{...j,status:'failed'});
     })).catch(()=>{
       // Persistence may also fail while recording an error. Never let this
@@ -98,6 +99,12 @@ export function createVoice(service,transport={}){
         else if(digit==='7'){c=save({...c,phase:'main',draftId:null});out=say('העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
         else if(digit==='*'){out=gather('לשמירה ויציאה הקישו 7. לחזרה לתפריט הראשי 8. לעזרה 9. לדילוג על פרט רשות 0. בזמן הקלטה סולמית מסיימת את ההקלטה.');}
         else if(digit==='8'){c=save({...c,phase:'main',speech:null,error:null,recordNonce:null,messagePresented:null,deliveryPresented:null});out=redirect();}
+        else if(c.phase==='job-error'){
+          // Never replay a failed recording or an approved delivery automatically.
+          const retry=['chat','ticket','family-compose','draft'].includes(c.retryPhase);
+          if(digit==='1'&&retry){c=save({...c,phase:c.retryPhase,retryPhase:null,silence:0});out=redirect();}
+          else out=gather(retry?PROCESSING_FAILURE_PROMPT:DELIVERY_FAILURE_PROMPT);
+        }
         else if(c.phase==='main'){
           const completion=c.speech;c={...c,speech:null};
           if(digit==='6'&&user.oversight){c=save({...c,phase:'oversight'});out=redirect();}else {const b=BRANCHES.find(b=>b.digit===digit);if(b){c=save({...c,phase:'branch',branch:b.digit});out=redirect();}else out=gather(BRANCHES.map(b=>`${b.title}, הקישו ${b.digit}`).join('. ')+(user.oversight?'. לפיקוח הקישו 6.':''));}

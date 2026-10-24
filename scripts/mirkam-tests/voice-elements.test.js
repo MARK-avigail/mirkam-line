@@ -347,3 +347,37 @@ test('fixed main and branch menus reuse audio without caching personal greetings
  for(const text of menus){await cache.get(text,generate);await cache.get(text,generate);}assert.equal(calls,menus.length);
  await cache.get('שלום שם פרטי. '+menus[0],generate);await cache.get('שלום שם פרטי. '+menus[0],generate);assert.equal(calls,menus.length+2);
 });
+
+test('failed answer waits for caller choice instead of automatically recording the same question',async t=>{
+ const {server,service,store}=await prepared(t);let attempts=0;
+ service.providers.transcribe=async()=> 'שאלה לבדיקה';
+ service.providers.chat=async()=>{attempts++;throw Error('provider unavailable');};
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording,RecordingSid:upload.body.recording},'?record=record');
+ for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ for(let i=0;i<2;i++){
+  const response=await step(server);assert.doesNotMatch(response.text,/<Record/);
+  assert.match(response.text,/<Gather/);assert.match(response.text,/לתפריט הראשי 8/);
+ }
+ assert.equal(attempts,1);
+ const response=await step(server,{Digits:'1'},'?input='+store.get('call',id).inputNonce);
+ assert.match(response.text,/<Redirect/);assert.equal(store.get('call',id).phase,'chat');
+ assert.match((await step(server)).text,/<Record/);
+ assert.equal(attempts,1,'retry must wait for a new recording, not resubmit automatically');
+});
+
+test('failed approved family delivery cannot be resubmitted from error menu',async t=>{
+ const {server,store,service,u}=await prepared(t,'family-review');
+ const contact=service.approveContact(u.user.id,{name:'משפחה',email:'test@example.test'},'owner');
+ const message=service.compose(u.user.id,contact.id,'הודעת בדיקה');let sent=0;
+ service.sendMessage=async()=>{sent++;throw Error('delivery status uncertain');};
+ store.put('call',{...store.get('call',id),messageId:message.id});await step(server);
+ await step(server,{Digits:'1'},'?input='+store.get('call',id).inputNonce);
+ for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ assert.equal(store.get('call',id).phase,'job-error');assert.equal(store.get('call',id).retryPhase,null);
+ let response=await step(server);assert.match(response.text,/מצב המשלוח/);assert.doesNotMatch(response.text,/לניסיון נוסף/);
+ response=await step(server,{Digits:'1'},'?input='+store.get('call',id).inputNonce);
+ assert.equal(sent,1);assert.equal(store.get('call',id).phase,'job-error');
+ await step(server,{Digits:'8'},'?input='+store.get('call',id).inputNonce);
+ assert.equal(store.get('call',id).phase,'main');assert.equal(sent,1);
+});

@@ -1,8 +1,10 @@
 import {BRANCHES} from './workflow.js';
 // Fixed service prompts only. Never retain personal greetings, answers or documents.
 export const RECOVERY_PROMPT='יש תקלה זמנית בהשמעה. נחזור לתפריט, ותוכלו לנסות שוב.';
+export const PROCESSING_FAILURE_PROMPT='לא הצלחנו לעבד את הבקשה או להכין תשובה. לניסיון נוסף הקישו 1. לתפריט הראשי 8. ליציאה 7.';
+export const DELIVERY_FAILURE_PROMPT='לא הצלחנו לאמת שהפעולה הושלמה. לפני שליחה נוספת יש לבדוק את מצב המשלוח. לתפריט הראשי 8. ליציאה 7.';
 const MAIN_MENU=BRANCHES.map(b=>`${b.title}, הקישו ${b.digit}`).join('. ');
-const FIXED=new Set([RECOVERY_PROMPT,MAIN_MENU,MAIN_MENU+'. לפיקוח הקישו 6.',
+const FIXED=new Set([RECOVERY_PROMPT,PROCESSING_FAILURE_PROMPT,DELIVERY_FAILURE_PROMPT,MAIN_MENU,MAIN_MENU+'. לפיקוח הקישו 6.',
  ...BRANCHES.map(b=>b.children.map(s=>`${s.title}, הקישו ${s.digit}`).join('. ')),
  'רק רגע.','הבקשה בעיבוד.',
  'עכשיו הקישו את הקוד האישי, שש ספרות.',
