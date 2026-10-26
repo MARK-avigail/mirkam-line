@@ -381,3 +381,52 @@ test('failed approved family delivery cannot be resubmitted from error menu',asy
  await step(server,{Digits:'8'},'?input='+store.get('call',id).inputNonce);
  assert.equal(store.get('call',id).phase,'main');assert.equal(sent,1);
 });
+
+for(const digit of ['7','8'])test('navigation '+digit+' from active wait survives an asynchronous answer failure',async t=>{
+ const {server,service,store}=await prepared(t);let rejectAnswer;
+ service.providers.transcribe=async()=> 'שאלה';service.providers.chat=()=>new Promise((resolve,reject)=>{rejectAnswer=reject;});
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording},'?record=record');
+ for(let i=0;i<50&&!rejectAnswer;i++)await new Promise(r=>setImmediate(r));assert.ok(rejectAnswer);
+ await step(server);const nonce=store.get('call',id).inputNonce;
+ rejectAnswer(Error('unavailable'));
+ for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ const response=await step(server,{Digits:digit},'?input='+nonce);
+ assert.doesNotMatch(response.text,/הבחירה אינה שייכת/);
+ assert.equal(store.get('call',id).phase,'main');
+ if(digit==='7')assert.match(response.text,/<Hangup/);
+});
+
+test('keypress during waiting cannot approve a retry before the failure menu is presented',async t=>{
+ const {server,service,store}=await prepared(t);let rejectAnswer;
+ service.providers.transcribe=async()=> 'שאלה';service.providers.chat=()=>new Promise((resolve,reject)=>{rejectAnswer=reject;});
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording},'?record=record');
+ for(let i=0;i<50&&!rejectAnswer;i++)await new Promise(r=>setImmediate(r));assert.ok(rejectAnswer);
+ await step(server);const nonce=store.get('call',id).inputNonce;rejectAnswer(Error('unavailable'));
+ for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ const response=await step(server,{Digits:'1'},'?input='+nonce);
+ assert.equal(store.get('call',id).phase,'job-error');assert.doesNotMatch(response.text,/<Record/);assert.match(response.text,/לניסיון נוסף/);
+ await step(server,{Digits:'1'},'?input='+nonce);assert.equal(store.get('call',id).phase,'job-error','old wait token cannot confirm the new menu');
+ await step(server,{Digits:'1'},'?input='+store.get('call',id).inputNonce);assert.equal(store.get('call',id).phase,'chat');
+});
+
+test('telephone login and branch flow deliver the generated answer to speech, not just management history',async t=>{
+ const {server,service,store}=fixture(t),u=enroll(service);let transcripts=0,answers=0;
+ service.providers.transcribe=async()=>{transcripts++;return 'איך מתחילים?';};
+ service.providers.chat=async(messages,options)=>{answers++;assert.equal(options.channel,'telephone');assert.equal(messages.at(-1).text,'איך מתחילים?');return 'אפשר להתחיל בצעד אחד.';};
+ const press=digits=>step(server,{Digits:digits},'?input='+store.get('call',id).inputNonce);
+ await step(server);await press(u.user.code);await press(u.pin);await step(server);
+ await press('3');await step(server);await press('1');
+ const prompt=await step(server);assert.match(prompt.text,/<Record/);
+ const recordNonce=store.get('call',id).recordNonce;
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record='+recordNonce,{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ assert.equal(upload.status,200);await step(server,{RecordingUrl:upload.body.recording},'?record='+recordNonce);
+ for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ const response=await step(server);assert.match(response.text,/אפשר להתחיל בצעד אחד/);assert.match(response.text,/<Gather/);
+ const text=response.text.match(/<Say[^>]*>([^<]+)<\/Say>/)[1];let spoken;
+ service.providers.speak=async value=>{spoken=value;return wav();};
+ const audio=await request(server,'/voice-elements/speech',{method:'POST',body:{callId:id,text},headers:{authorization:'Bearer '+secret}});
+ assert.equal(audio.status,200);assert.equal(spoken,'אפשר להתחיל בצעד אחד.');assert.equal(transcripts,1);assert.equal(answers,1);
+ assert.doesNotMatch((await step(server)).text,/אפשר להתחיל בצעד אחד/,'answer is not repeated on the next prompt');
+});

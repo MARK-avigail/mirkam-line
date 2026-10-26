@@ -27,7 +27,7 @@ export function createVoice(service,transport={}){
       store.put('call',{...current,...result,jobId:null,processingMs:Date.now()-j.createdAt});
     })).catch(()=>store.atomic(()=>{
       const current=store.get('call',c.id);
-      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:'job-error',retryPhase:j.previous==='draft-clarify'?'draft':(['chat','ticket','family-compose','draft'].includes(j.previous)?j.previous:null),jobId:null,speech:null,error:null,recordNonce:null,inputNonce:null});
+      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:'job-error',retryPhase:j.previous==='draft-clarify'?'draft':(['chat','ticket','family-compose','draft'].includes(j.previous)?j.previous:null),jobId:null,speech:null,error:null,recordNonce:null,retryPresented:false});
       store.put('voice-job',{...j,status:'failed'});
     })).catch(()=>{
       // Persistence may also fail while recording an error. Never let this
@@ -102,8 +102,8 @@ export function createVoice(service,transport={}){
         else if(c.phase==='job-error'){
           // Never replay a failed recording or an approved delivery automatically.
           const retry=['chat','ticket','family-compose','draft'].includes(c.retryPhase);
-          if(digit==='1'&&retry){c=save({...c,phase:c.retryPhase,retryPhase:null,silence:0});out=redirect();}
-          else out=gather(retry?PROCESSING_FAILURE_PROMPT:DELIVERY_FAILURE_PROMPT);
+          if(digit==='1'&&retry&&c.retryPresented===true){c=save({...c,phase:c.retryPhase,retryPhase:null,silence:0});out=redirect();}
+          else {c={...c,retryPresented:true};out=gather(retry?PROCESSING_FAILURE_PROMPT:DELIVERY_FAILURE_PROMPT);}
         }
         else if(c.phase==='main'){
           const completion=c.speech;c={...c,speech:null};
