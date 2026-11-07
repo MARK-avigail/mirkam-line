@@ -1,3 +1,4 @@
+import {recordingList,recordingFile} from './recordings.js';
 import {createFaxInbox} from './fax-inbox.js';
 import {createFamilyInbox} from './family-inbox.js';
 import {callHealth} from './call-health.js';
@@ -149,12 +150,22 @@ export function createMirkamServer(service){
           const item=await service.refreshFax(faxRefresh[2],faxRefresh[1],()=>{const current=staff(req,service);if(current.role!=='owner'||current.actor!==actor)throw Object.assign(Error('נדרשת כניסה מחדש.'),{status:403});});
           return send({ok:true,item});
         }
+        const audioFile=suffix.match(/^users\/([a-f0-9-]+)\/recordings\/([a-f0-9-]+)\/file$/);
+        if(audioFile&&method==='GET'){
+          if(auth.role!=='owner')return send({ok:false,error:'נדרשת הרשאת בעלת המערכת.'},403);
+          if(!service.store.get('user',audioFile[1]))return send({ok:false,error:'המשתמש לא נמצא.'},404);
+          const {bytes,mime}=recordingFile(service.store,audioFile[1],audioFile[2]);
+          service.store.audit(actor,'audio.listen',audioFile[2]);
+          res.writeHead(200,{'Content-Type':mime,'Content-Length':bytes.length,'Cache-Control':'no-store'});
+          return res.end(bytes);
+        }
         const dossier=suffix.match(/^users\/([a-f0-9-]+)(?:\/(contacts))?$/);
         if(dossier&&method==='GET'&&!dossier[2]){
           const account=service.store.get('user',dossier[1]);if(!account)throw Object.assign(Error('המשתמש לא נמצא.'),{status:404});
           const {code,...profile}=safeUser(account);
           const result={user:profile,contacts:service.store.list('contact',account.id),tickets:service.store.list('ticket',account.id)};
           if(auth.role==='owner')for(const [key,kind] of [['drafts','draft'],['messages','message'],['conversations','conversation'],['deliveries','delivery']])result[key]=service.store.list(kind,account.id);
+          if(auth.role==='owner')result.recordings=recordingList(service.store,account.id);
           if(auth.role==='owner')result.faxes=faxInbox.status().items.filter(item=>item.userId===account.id);
           return send({ok:true,...result});
         }

@@ -36,9 +36,7 @@ export function createVoiceElements(service){
       return true;
     },
     transcribe:async id=>{const r=recording(id);try{return await service.providers.transcribe(Buffer.from(r.data,'base64'),'audio/wav');}finally{store.remove('bridge-audio',id);}},
-    retain:(user,id)=>{const r=recording(id);if(r.owner!==user)throw Error('Recording owner mismatch');return service.recordAudio(user,{providerId:'local',data:r.data,mime:'audio/wav'});},
-    track:(user,id)=>{const r=recording(id);if(r.owner!==user)throw Error('Recording owner mismatch');return service.trackTransientAudio(user,'local');},
-    dispose:async(user,id,recordId)=>{try{return await service.disposeTransientAudio(user,'local',recordId);}finally{store.remove('bridge-audio',id);}}
+    retain:(user,id,details={})=>{const r=recording(id);if(r.owner!==user)throw Error('Recording owner mismatch');return service.recordAudio(user,{providerId:'local',data:r.data,mime:'audio/wav',sourceId:r.sourceId||r.id,callId:r.callId,...details});}
   });
   const speechCache=fixedSpeechCache();
   let speechBusy=0,speechWindow=0,speechCount=0;
@@ -96,7 +94,14 @@ export function createVoiceElements(service){
         for(const r of store.list('bridge-audio'))if(r.expiresAt<Date.now())store.remove('bridge-audio',r.id);
         // One upload per prompt; retries reuse the first accepted recording.
         let item=store.list('bridge-audio',user.id).find(r=>r.callId===id&&r.nonce===nonce);
-        if(!item)item=store.create('bridge-audio',user.id,{id:'ve:'+randomUUID(),callId:id,nonce,data:audio.toString('base64'),expiresAt:Date.now()+600000});
+        if(!item)item=store.atomic(()=>{
+          // The prompt identity survives deletion of the temporary upload.
+          // A retry must neither duplicate nor replace the first accepted audio.
+          const sourceId='ve-prompt:'+id+':'+nonce;
+          const archived=service.recordAudio(user.id,{providerId:'local',sourceId,callId:id,kind:['chat','family-compose','ticket'].includes(c.phase)?c.phase:'filling',data:audio.toString('base64'),mime:'audio/wav'});
+          if(archived.status!=='retained'||!archived.data)throw Error('Recording is no longer available');
+          return store.create('bridge-audio',user.id,{id:'ve:'+randomUUID(),sourceId,callId:id,nonce,data:archived.data,expiresAt:Date.now()+600000});
+        });
         return json({ok:true,recording:item.id});
       }
       if(url.pathname==='/voice-elements/speech'){

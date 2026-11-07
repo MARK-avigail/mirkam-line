@@ -1,4 +1,6 @@
 let voiceSampleUrl,liveVoiceTrial;
+let recordingPlayback=null,recordingEpoch=0;
+function stopRecordingPlayback(){recordingEpoch++;if(recordingPlayback){recordingPlayback.player.pause?.();recordingPlayback.player.removeAttribute('src');recordingPlayback.player.load?.();URL.revokeObjectURL(recordingPlayback.url);recordingPlayback=null;}}
 'use strict';
 const $=id=>document.getElementById(id);let token='',user=null,draft=null,conversation=null,message=null,busy=false,recorder=null,stream=null;
 const pane=$('pane');let adminSession='',adminRole='',sessionTimer,authEpoch=0;
@@ -6,7 +8,7 @@ window.mirkamStaffAuthenticated=false;
 let credentialPanel=null,credentialTimer,currentArea='home',selectedUserId=null;
 
 function clearCredentials(){clearTimeout(credentialTimer);if(credentialPanel)credentialPanel.replaceChildren();credentialPanel=null;}
-function lockManagement(){stopLiveVoice();if(voiceSampleUrl){URL.revokeObjectURL(voiceSampleUrl);voiceSampleUrl=null;}document.body?.classList.remove('module-home');closeDrawer();$('shell-bar').hidden=true;selectedUserId=null;currentArea='home';clearCredentials();$('status').textContent='';authEpoch++;clearTimeout(sessionTimer);adminSession='';adminRole='';token='';user=draft=conversation=message=null;window.mirkamStaffAuthenticated=false;document.body?.classList.add('locked');for(const id of ['suite-sidebar','app-header','app-footer','admin','workspace','login'])$(id).hidden=true;$('staff-gate').hidden=false;$('staff-password').value='';$('admin-token').value='';$('pin').value='';$('code').value='';$('admin-pane').replaceChildren();$('owner-result').replaceChildren();pane.replaceChildren();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
+function lockManagement(){stopRecordingPlayback();stopLiveVoice();if(voiceSampleUrl){URL.revokeObjectURL(voiceSampleUrl);voiceSampleUrl=null;}document.body?.classList.remove('module-home');closeDrawer();$('shell-bar').hidden=true;selectedUserId=null;currentArea='home';clearCredentials();$('status').textContent='';authEpoch++;clearTimeout(sessionTimer);adminSession='';adminRole='';token='';user=draft=conversation=message=null;window.mirkamStaffAuthenticated=false;document.body?.classList.add('locked');for(const id of ['suite-sidebar','app-header','app-footer','admin','workspace','login'])$(id).hidden=true;$('staff-gate').hidden=false;$('staff-password').value='';$('admin-token').value='';$('pin').value='';$('code').value='';$('admin-pane').replaceChildren();$('owner-result').replaceChildren();pane.replaceChildren();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
 function unlockManagement(role){adminRole=role;window.mirkamStaffAuthenticated=true;document.body?.classList.remove('locked');$('staff-gate').hidden=true;$('admin').hidden=false;$('suite-sidebar').hidden=true;$('app-footer').hidden=true;$('admin').open=true;const owner=role==='owner';for(const id of ['suite-line','suite-chats','suite-documents','suite-family','admin-destinations','admin-announcement'])$(id).hidden=!owner;$('admin-users').hidden=!['owner','support'].includes(role);$('admin-contacts').hidden=!['owner','support'].includes(role);$('admin-tickets').hidden=!['owner','support'].includes(role);renewManagementTimer();window.dispatchEvent?.(new Event('mirkam-auth-changed'));}
 function renewManagementTimer(){clearTimeout(sessionTimer);sessionTimer=setTimeout(()=>{lockManagement();$('status').textContent='ההתחברות הסתיימה לאחר חוסר פעילות. היכנסו שוב.';},3300000);}
 let lastSessionTouch=0,sessionTouchPending=false;
@@ -28,12 +30,12 @@ function configureDrawer(){
   $(id).hidden=!visible||!canManage(id);
  }
 }
-function enterArea(area){currentArea=area;document.body.classList.remove('module-home');$('shell-bar').hidden=false;$('shell-title').textContent=area==='line'?'מערכת הקו':'ניהול המערכת';$('admin').hidden=false;closeDrawer();configureDrawer();}
+function enterArea(area){stopRecordingPlayback();currentArea=area;document.body.classList.remove('module-home');$('shell-bar').hidden=false;$('shell-title').textContent=area==='line'?'מערכת הקו':'ניהול המערכת';$('admin').hidden=false;closeDrawer();configureDrawer();}
 $('menu-toggle').onclick=()=>{if(!adminSession)return;const open=$('suite-sidebar').hidden;configureDrawer();$('suite-sidebar').hidden=!open;$('menu-backdrop').hidden=!open;$('menu-toggle').setAttribute('aria-expanded',String(open));};
 $('menu-close').onclick=closeDrawer;$('menu-backdrop').onclick=closeDrawer;
 $('shell-home').onclick=()=>run(async()=>{requireManagement();managementHome();});
 document.addEventListener?.('keydown',event=>{if(event.key==='Escape'){closeDrawer();$('menu-toggle').focus?.();}});
-function managementHome(){
+function managementHome(){stopRecordingPlayback();
  stopLiveVoice();
  clearCredentials();selectedUserId=null;currentArea='home';closeDrawer();$('shell-bar').hidden=true;document.body.classList.add('module-home');
  const p=$('admin-pane');$('admin').hidden=false;$('admin').open=true;
@@ -171,7 +173,7 @@ function clear(title){pane.replaceChildren(node('h2',title));reveal(pane);}
 function button(text,fn,parent=pane){const b=node('button',text);b.type='button';b.onclick=()=>run(fn);parent.append(b);return b;}
 function input(label,type='text',parent=pane){const l=node('label',label),i=document.createElement(type==='textarea'?'textarea':'input');if(type!=='textarea')i.type=type;if(type==='email'){i.dir='ltr';i.autocomplete='email';}l.append(i);parent.append(l);return i;}
 async function api(route,method='GET',data,admin=false,binary=false){const epoch=authEpoch;if(!navigator.onLine)throw Error('אין חיבור לאינטרנט. כניסה, שיחות ושליחה יהיו זמינות כשהחיבור יחזור.');const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);try{const r=await fetch('/api/'+route,{method,headers:{Authorization:'Bearer '+(admin?(adminSession||$('admin-token').value):token),...(data?{'Content-Type':'application/json'}:{})},body:data?JSON.stringify(data):undefined,signal:controller.signal});if(admin&&epoch!==authEpoch)throw Error('ההתחברות הסתיימה. היכנסו שוב.');if(admin&&r.ok)renewManagementTimer();if(binary&&r.ok)return r.blob();if(!r.headers.get('content-type')?.includes('application/json'))throw Error('השרת החזיר תשובה לא צפויה. נסו שוב או בדקו את מצב השירות.');const v=await r.json();if(admin&&epoch!==authEpoch)throw Error('ההתחברות הסתיימה. היכנסו שוב.');if(!r.ok||v.ok===false){if(admin&&r.status===401)lockManagement();throw Error(v.error||'הפעולה לא הושלמה.');}return v;}catch(e){if(e instanceof TypeError)throw Error('לא ניתן להגיע לשרת כרגע. בדקו את החיבור ואת פעילות השרת.');if(e.name==='AbortError')throw Error('השרת לא ענה בזמן. לפני משלוח נוסף בדקו את ההיסטוריה.');throw e;}finally{clearTimeout(timer);}}
-async function run(fn){if(busy)return;busy=true;const status=$('status');status.textContent='מבצעים את הפעולה…';const buttons=[...document.querySelectorAll('#workspace button, #admin button, .suite-sidebar button, #login button')].filter(b=>!b.disabled);buttons.forEach(b=>b.disabled=true);try{await fn();if(status.textContent==='מבצעים את הפעולה…')status.textContent='';}catch(e){status.textContent=e.message||'הפעולה לא הושלמה.';reveal(status);}finally{busy=false;buttons.forEach(b=>b.disabled=false);}}
+async function run(fn){if(busy)return;stopRecordingPlayback();busy=true;const status=$('status');status.textContent='מבצעים את הפעולה…';const buttons=[...document.querySelectorAll('#workspace button, #admin button, .suite-sidebar button, #login button')].filter(b=>!b.disabled);buttons.forEach(b=>b.disabled=true);try{await fn();if(status.textContent==='מבצעים את הפעולה…')status.textContent='';}catch(e){status.textContent=e.message||'הפעולה לא הושלמה.';reveal(status);}finally{busy=false;buttons.forEach(b=>b.disabled=false);}}
 
 function speak(text){if(!window.speechSynthesis){$('status').textContent='הקראה אינה נתמכת בדפדפן הזה.';return;}speechSynthesis.cancel();const voice=speechSynthesis.getVoices().find(v=>/^he/i.test(v.lang));if(!voice){$('status').textContent='לא נמצא קול עברי בדפדפן. הקול הטלפוני מוגדר בנפרד.';return;}for(const part of String(text).match(/[\s\S]{1,600}/g)||[]){const u=new SpeechSynthesisUtterance(part);u.lang='he-IL';u.voice=voice;u.rate=.9;speechSynthesis.speak(u);}}
 async function audio(target,draftId){if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw Error('הקלטה דורשת דפדפן נתמך וכתובת מאובטחת.');if(recorder?.state==='recording')throw Error('הקלטה כבר פועלת.');stream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=['audio/webm','audio/mp4'].find(m=>MediaRecorder.isTypeSupported(m));recorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});const parts=[];const stop=button('סיום הקלטה',async()=>recorder.stop());let timer;recorder.ondataavailable=e=>{if(e.data.size)parts.push(e.data);};recorder.onstop=()=>{clearTimeout(timer);stream.getTracks().forEach(t=>t.stop());stop.remove();run(async()=>{const blob=new Blob(parts,{type:recorder.mimeType});if(!blob.size)throw Error('ההקלטה ריקה.');const base64=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(blob);});const response=await api('transcribe','POST',{audio:base64,mime:recorder.mimeType,...(draftId?{draftId}:{})});target.value=response.text;$('status').textContent='התמלול התקבל. בדקו אותו לפני אישור.';});};recorder.start();timer=setTimeout(()=>{if(recorder.state==='recording')recorder.stop();},180000);$('status').textContent='מקליטים. בסיום לחצו על סיום הקלטה.';}
@@ -263,15 +265,37 @@ async function openUser(id,tab='profile'){
  const r=await api('admin/users/'+id,'GET',undefined,true);selectedUserId=id;enterArea('management');const p=$('admin-pane');p.replaceChildren();backToUsers(p);
  p.append(node('h1',r.user.name),node('p',r.user.prison+' · '+(r.user.active===false?'מושעה':'פעיל')));
  const tabs=node('nav');tabs.className='profile-tabs';tabs.setAttribute('aria-label','תיק משתמש');const content=node('div');content.className='profile-content';
- const labels=[['profile','פרטים'],['drafts','עתירות'],['messages','הודעות'],['deliveries','משלוחים'],...(adminRole==='owner'?[['faxes','פקסים שהתקבלו']]:[]),['conversations','שיחות'],['contacts','אנשי קשר'],['tickets','פניות']];
+ const labels=[['profile','פרטים'],['drafts','עתירות'],['messages','הודעות'],['deliveries','משלוחים'],...(adminRole==='owner'?[['faxes','פקסים שהתקבלו'],['recordings','הקלטות']]:[]),['conversations','שיחות'],['contacts','אנשי קשר'],['tickets','פניות']];
  const render=key=>{
-  clearCredentials();content.replaceChildren();for(const b of tabs.children)b.setAttribute('aria-current',b.datasetTab===key?'page':'false');
+  stopRecordingPlayback();clearCredentials();content.replaceChildren();for(const b of tabs.children)b.setAttribute('aria-current',b.datasetTab===key?'page':'false');
   if(key==='profile'){
    for(const [label,value] of [['שם',r.user.name],['מספר זהות',r.user.identity],['מספר אסיר',r.user.prisonerNumber],['בית סוהר',r.user.prison],['אגף',r.user.wing]]){const row=node('p');row.append(node('strong',label+': '),node('span',value||'לא צוין'));content.append(row);}
    button(r.user.active===false?'ביטול חסימת משתמש':'חסימת משתמש',async()=>{const active=r.user.active===false;if(!window.confirm((active?'לבטל את החסימה של ':'לחסום את ')+r.user.name+'? '+(active?'תתאפשר כניסה מחדש.':'החיבורים הקיימים יבוטלו. הנתונים יישמרו.')))return;await api('admin/users/'+id+'/status','POST',{active},true);await openUser(id);},content);
    button('קוד משתמש למסירה',async()=>{const result=await api('admin/users/'+id+'/code','GET',undefined,true);showCredentials(r.user.name,{code:result.code});button('חזרה לתיק המשתמש',()=>openUser(id),$('admin-pane'));},content);
    button('איפוס PIN',async()=>{if(!window.confirm('לאפס את ה-PIN של '+r.user.name+'? הקוד הקודם לא יעבוד והחיבורים הקיימים יבוטלו.'))return;const result=await api('admin/users/'+id+'/reset','POST',{},true);showCredentials(r.user.name,result.result);button('חזרה לתיק המשתמש',()=>openUser(id),$('admin-pane'));},content);
    if(adminRole==='owner'){const extra=node('details');extra.className='advanced-permissions';extra.append(node('summary','הרשאות פיקוח מיוחדות'),node('p','פיקוח מאפשר גישה למידע של משתמשים אחרים וכולל מינוי ללא חיוב. אינו הרשאת ניהול באפליקציה.'));if(r.user.oversight)extra.append(node('p','פיקוח טלפוני כבר מופעל.'));else button('הענקת פיקוח טלפוני',async()=>{if(!window.confirm('להעניק ל-'+r.user.name+' גישה לשיחות, מסמכים וחשבונות של אחרים?'))return;await api('admin/oversight','POST',{userId:id},true);await openUser(id);},extra);content.append(extra);}
+   return;
+  }
+  if(key==='recordings'){
+   content.append(node('p','קטעי דיבור שמורים של המשתמש. זו אינה הקלטה רציפה של השיחה.'));
+   const recordings=r.recordings||[];
+   if(!recordings.length)content.append(node('p','אין הקלטות שמורות בתיק זה.'));
+   const titles={filling:'מילוי מסמך',chat:'שיחה עם ליין','family-compose':'הודעה למשפחה',ticket:'פנייה למשרד'};
+   const states={expired:'תקופת השמירה הסתיימה',unavailable:'קובץ האודיו אינו זמין', 'provider-only':'ההקלטה שמורה אצל ספק חיצוני ואינה זמינה להאזנה כאן'};
+   for(const item of recordings){
+    const card=node('section');card.className='profile-record';card.append(node('h3',titles[item.kind]||'הקלטה'),node('p',new Date(item.created).toLocaleString('he-IL')));
+    card.append(node('p',item.hold?'השמירה הוארכה':('שמירה עד '+new Date(item.deleteAfter).toLocaleDateString('he-IL'))));
+    if(item.availability==='available'){
+     const player=node('audio');player.controls=true;player.preload='none';player.setAttribute('aria-label','הקלטת '+(titles[item.kind]||'משתמש'));
+     button('טעינת הקלטה להאזנה',async()=>{
+      stopRecordingPlayback();const playbackEpoch=recordingEpoch,loginEpoch=authEpoch;
+      const blob=await api('admin/users/'+id+'/recordings/'+item.id+'/file','GET',undefined,true,true);
+      if(loginEpoch!==authEpoch||playbackEpoch!==recordingEpoch||selectedUserId!==id||!adminSession)return;
+      const url=URL.createObjectURL(blob);recordingPlayback={player,url};player.src=url;player.load?.();
+     },card);card.append(player);
+    }else card.append(node('p',states[item.availability]||states.unavailable));
+    content.append(card);
+   }
    return;
   }
   const items=r[key]||[];if(!items.length)content.append(node('p','אין פריטים בתיק זה.'));

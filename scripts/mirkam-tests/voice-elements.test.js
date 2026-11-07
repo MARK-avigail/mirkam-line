@@ -93,7 +93,7 @@ test('uploaded WAV reaches real chat workflow and temporary audio is removed',as
  const response=await step(server,{RecordingUrl:reference,RecordingSid:reference},'?record=record');assert.equal(response.status,200);
  for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(transcribed,1);assert.equal(store.get('conversation',conversation.id).messages.at(-1).text,'תשובה לבדיקה');
- assert.equal(store.list('bridge-audio').length,0);assert.equal(store.list('audio')[0].status,'deleted');
+ assert.equal(store.list('bridge-audio').length,0);assert.equal(store.list('audio')[0].status,'retained');assert.equal(store.list('audio')[0].data,wav().toString('base64'));assert.equal(store.list('audio').length,1);
 });
 test('call end revokes login and cannot be resumed by replaying its identifier',async t=>{
  const {server,store,service,login}=await prepared(t);
@@ -154,8 +154,8 @@ test('owner can compare cached Hebrew samples; unauthenticated and unsupported c
 });
 test('successful login greets the authenticated user once inside the interruptible main menu',async t=>{
  const {server,service,store}=fixture(t),u=enroll(service);await step(server);let c=store.get('call',id);
- await step(server,{Digits:u.user.code},'?input='+c.inputNonce);c=store.get('call',id);await step(server,{Digits:u.pin},'?input='+c.inputNonce);
- const first=await step(server);assert.match(first.text,/<Gather[^>]*><Say[^>]*>שלום שם, מה שלומך/);assert.match(first.text,/הקודים אינם מוקלטים/);
+ await step(server,{Digits:u.user.code},'?input='+c.inputNonce);c=store.get('call',id);const welcome=await step(server,{Digits:u.pin},'?input='+c.inputNonce);assert.match(welcome.text,/בעלת המערכת יכולה להאזין/);assert.match(welcome.text,/לארבעה חודשים/);assert.doesNotMatch(welcome.text,/<Gather|<Record/);
+ const first=await step(server);assert.match(first.text,/<Gather[^>]*><Say[^>]*>שלום שם, מה שלומך/);assert.match(welcome.text,/הקודים המוקשים אינם מוקלטים/);
  const next=await step(server);assert.doesNotMatch(next.text,/מה שלומך/);
 });
 test('Live listening trial is owner-only and cannot accept a different voice or session target',async t=>{
@@ -380,4 +380,30 @@ test('failed approved family delivery cannot be resubmitted from error menu',asy
  assert.equal(sent,1);assert.equal(store.get('call',id).phase,'job-error');
  await step(server,{Digits:'8'},'?input='+store.get('call',id).inputNonce);
  assert.equal(store.get('call',id).phase,'main');assert.equal(sent,1);
+});
+
+for(const phase of ['chat','family-compose','ticket','draft','draft-clarify'])test('accepted '+phase+' audio survives disconnect before transcription',async t=>{
+ const {server,store,u}=await prepared(t,phase);
+ const upload=()=>request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ assert.equal((await upload()).status,200);assert.equal((await upload()).status,200);
+ const recordings=store.list('audio',u.user.id);assert.equal(recordings.length,1);assert.equal(recordings[0].kind,phase.startsWith('draft')?'filling':phase);
+ await request(server,'/voice-elements/end',{method:'POST',body:{callId:id},headers:{authorization:'Bearer '+secret}});
+ assert.equal(store.list('bridge-audio').length,0);assert.equal(store.get('audio',recordings[0].id).data,wav().toString('base64'));
+});
+test('failed archive write rolls back temporary upload and retry can preserve the audio',async t=>{
+ const {server,store}=await prepared(t);const create=store.create.bind(store);let fail=true;
+ store.create=(kind,...args)=>{if(kind==='audio'&&fail){fail=false;throw Error('storage failure');}return create(kind,...args);};
+ const upload=()=>request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ assert.notEqual((await upload()).status,200);assert.equal(store.list('bridge-audio').length,0);assert.equal(store.list('audio').length,0);
+ assert.equal((await upload()).status,200);assert.equal(store.list('audio').length,1);
+});
+test('retry after temporary upload expires reuses the original archived speech',async t=>{
+ const {server,store}=await prepared(t);
+ const upload=body=>request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body,headers:{authorization:'Bearer '+secret}});
+ const first=await upload(wav());assert.equal(first.status,200);
+ const temp=store.get('bridge-audio',first.body.recording);store.put('bridge-audio',{...temp,expiresAt:1});
+ const changed=wav();changed[45]=42;
+ const retry=await upload(changed);assert.equal(retry.status,200);
+ assert.equal(store.list('audio').length,1);
+ assert.equal(store.get('bridge-audio',retry.body.recording).data,wav().toString('base64'));
 });

@@ -11,9 +11,7 @@ const gatherXml=(text,digits=1)=>`<Gather numDigits="${digits}" finishOnKey="#" 
 export function validVoiceSignature(url,body,signature,secret){if(!secret||typeof signature!=='string')return false;const text=url+Object.keys(body).sort().map(k=>k+body[k]).join(''),expected=createHmac('sha1',secret).update(text).digest('base64');const a=Buffer.from(expected),b=Buffer.from(signature);return a.length===b.length&&timingSafeEqual(a,b);}
 export function createVoice(service,transport={}){
   const transcribe=transport.transcribe||transcribeTwilio;
-  const retain=transport.retain||((user,providerId)=>service.recordAudio(user,{providerId}));
-  const track=transport.track||((user,providerId)=>service.trackTransientAudio(user,providerId));
-  const dispose=transport.dispose||((user,providerId,id)=>service.disposeTransientAudio(user,providerId,id));
+  const retain=transport.retain||((user,providerId,details={})=>service.recordAudio(user,{providerId,sourceId:providerId,...details}));
   const jobs=new Map();
   const store=service.store;
   const reviewHash=(id,user)=>createHash('sha256').update(JSON.stringify([service.package(id,user),service.draft(id,user).attachments])).digest('hex');
@@ -80,7 +78,7 @@ export function createVoice(service,transport={}){
         if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('עכשיו הקישו את הקוד האישי, שש ספרות.',6);}
         else out=gather(c.silence>1||digit?'ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות.':'שלום, כאן מרקם ליין, עם עוזר בינה מלאכותית. טוב שאתם כאן. הקישו קוד משתמש, שש ספרות.',6);
       }else if(c.phase==='login-pin'){
-        if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main',speech:`שלום ${login.user.name.split(/\s+/)[0]}, מה שלומך? אני כאן לעזור. תמלולים והקלטות מילוי נשמרים להמשך העבודה. הקודים אינם מוקלטים.`});out=redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
+        if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main',speech:`שלום ${login.user.name.split(/\s+/)[0]}, מה שלומך? אני כאן לעזור.`});out=say('קטעי הדיבור שלכם בכל השלוחות מוקלטים ונשמרים לארבעה חודשים. בעלת המערכת יכולה להאזין להם לצורך טיפול ובקרה. הקודים המוקשים אינם מוקלטים.')+redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
         else out=gather('לא התקבל קוד מלא. זה בסדר, אפשר לנסות שוב בנחת. הקישו את כל שש הספרות של הקוד האישי. יש לכם שלושים שניות.',6);
       }else{
         let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id,token=c.token,validate=()=>service.identity.authenticate(token);
@@ -186,7 +184,7 @@ export function createVoice(service,transport={}){
           if(digit==='1'&&c.deliveryPresented===c.nonce){const approved=service.approve(d.id,uid,c.nonce,true,d.revision);c=job(c,'delivery',async()=>{const result=await service.send(d.id,uid,approved.revision);return {phase:'main',speech:deliveryStatus(result.status)};});out=redirect();}
           else{c=save({...c,deliveryPresented:c.nonce});out=gather(`החבילה תישלח אל ${target.name}. ${d.approval.channel==='fax'?'בפקס למספר '+String(target.fax).split('').join(' '):'במייל לכתובת '+String(target.email).split('').join(' ')}. לאישור ושליחה הקישו 1. לחזרה בלי שליחה 8.`);}
         }else if(['chat','family-compose','ticket'].includes(c.phase)){
-          if(data.RecordingUrl){const phase=c.phase;c=job(c,'transcribe',async()=>{const providerId=data.RecordingSid||data.RecordingUrl,audio=track(uid,providerId);let text;try{service.reserveAI(uid);text=await transcribe(data.RecordingUrl);}finally{await dispose(uid,providerId,audio.id);}validate();
+          if(data.RecordingUrl){const phase=c.phase;c=job(c,'transcribe',async()=>{const providerId=data.RecordingSid||data.RecordingUrl;retain(uid,providerId,{kind:phase,callId:c.id});service.reserveAI(uid);const text=await transcribe(data.RecordingUrl);validate();
             if(phase==='chat'){const conv=store.owned('conversation',c.conversationId,uid),r=await service.chat(conv.id,uid,text,conv.revision,validate,{channel:'telephone'});return {phase:'chat',speech:r.messages.at(-1).text};}
             if(phase==='ticket'){service.ticket(uid,text);return {phase:'main',speech:'הפנייה נשמרה למשרד.'};}
             const message=service.compose(uid,c.contactId,text);return {phase:'family-review',messageId:message.id};});out=redirect();}
