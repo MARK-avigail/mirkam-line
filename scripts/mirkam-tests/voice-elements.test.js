@@ -118,7 +118,7 @@ test('login gives 30 seconds, retries incomplete PIN without locking and explain
  let r=await step(server);assert.match(r.text,/timeout="30"/);
  let c=store.get('call',id);await step(server,{Digits:u.user.code},'?input='+c.inputNonce);
  c=store.get('call',id);r=await step(server,{Digits:'12'},'?input='+c.inputNonce);
- assert.match(r.text,/נדרשות שש ספרות/);assert.equal(store.list('failure').length,0);assert.equal(store.get('call',id).phase,'login-pin');
+ assert.match(r.text,/לא התקבל קוד מלא/);assert.equal(store.list('failure').length,0);assert.equal(store.get('call',id).phase,'login-pin');
  for(let n=0;n<3;n++){r=await step(server);if(r.text.includes("<Hangup"))break;}
  assert.match(r.text,/<Hangup/);assert.match(r.text,/כשהקודים מוכנים/);assert.doesNotMatch(r.text,/העבודה שאושרה נשמרה/);
 });
@@ -141,7 +141,7 @@ test('family review offers replay and re-recording without sending or carrying o
 });
 test('repeated login prompt is short and keeps six-digit authentication',async t=>{
  const {server}=fixture(t);const first=await step(server),again=await step(server);
- assert.match(first.text,/הקישו את קוד המשתמש, שש ספרות/);assert.doesNotMatch(first.text,/תמלולים והקלטות/);assert.doesNotMatch(again.text,/תמלולים והקלטות/);assert.match(again.text,/numDigits="6"/);assert.match(again.text,/timeout="30"/);
+ assert.match(first.text,/טוב שאתם כאן/);assert.doesNotMatch(first.text,/תמלולים והקלטות/);assert.doesNotMatch(again.text,/תמלולים והקלטות/);assert.match(again.text,/numDigits="6"/);assert.match(again.text,/timeout="30"/);
 });
 test('owner can compare cached Hebrew samples; unauthenticated and unsupported choices cannot spend',async t=>{
  const {server,service}=fixture(t);let calls=0;

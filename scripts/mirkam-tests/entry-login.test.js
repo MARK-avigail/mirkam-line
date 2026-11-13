@@ -28,10 +28,19 @@ test('configured entry speaks once, gathers hash as data, then hangs up on silen
  const timeout=await step(f.server);assert.match(timeout.text,/<Hangup/);assert.doesNotMatch(timeout.text,/<Gather|פתיחת בדיקה/);
 });
 for(const digit of ['1','*','123456'])test('entry rejects '+digit+' without revealing login',async t=>{const f=gated(t);await step(f.server);const r=await press(f,digit);assert.match(r.text,/<Hangup/);assert.doesNotMatch(r.text,/<Gather|קוד משתמש/);});
-test('hash opens login but does not bypass either credential',async t=>{const f=gated(t),u=enroll(f.service);await step(f.server);let r=await press(f,'#');assert.match(r.text,/קוד המשתמש/);assert.equal(f.store.list('token').length,0);await press(f,u.user.code);assert.equal(f.store.list('token').length,0);r=await press(f,u.pin);assert.equal(f.store.get('call',id).userId,u.user.id);assert.match(r.text,/מוקלטים/);});
+test('hash opens login but does not bypass either credential',async t=>{const f=gated(t),u=enroll(f.service);await step(f.server);let r=await press(f,'#');assert.match(r.text,/קוד משתמש/);assert.equal(f.store.list('token').length,0);await press(f,u.user.code);assert.equal(f.store.list('token').length,0);r=await press(f,u.pin);assert.equal(f.store.get('call',id).userId,u.user.id);assert.match(r.text,/מוקלטים/);});
 test('old entry callback cannot reopen an ended call',async t=>{const f=gated(t);await step(f.server);const nonce=f.store.get('call',id).inputNonce;await press(f,'1');const r=await step(f.server,{Digits:'#'},'?input='+nonce);assert.notEqual(f.store.get('call',id).phase,'login-code');assert.doesNotMatch(r.text,/<Gather/);});
 test('partial code inputs stop after three attempts instead of looping indefinitely',async t=>{const f=fixture(t);await step(f.server);for(let i=0;i<3;i++){const r=await press(f,'12');if(i<2)assert.match(r.text,/<Gather/);else assert.match(r.text,/<Hangup/);}assert.equal(f.store.list('token').length,0);});
 test('partial PIN inputs stop after three attempts',async t=>{const f=fixture(t),u=enroll(f.service);await step(f.server);await press(f,u.user.code);let r;for(let i=0;i<3;i++)r=await press(f,'12');assert.match(r.text,/<Hangup/);assert.equal(f.store.list('token').length,0);});
 test('failed pair returns to user code so an incorrect first code can be corrected',async t=>{const f=fixture(t),u=enroll(f.service);await step(f.server);await press(f,u.user.code==='000000'?'111111':'000000');await press(f,u.pin);assert.equal(f.store.get('call',id).phase,'login-code');await press(f,u.user.code);await press(f,u.pin);assert.equal(f.store.get('call',id).userId,u.user.id);});
 test('three invalid credential pairs end the call without disclosing which code failed',async t=>{const f=fixture(t),u=enroll(f.service);await step(f.server);let r;for(let i=0;i<3;i++){await press(f,u.user.code);r=await press(f,u.pin==='000000'?'111111':'000000');}assert.match(r.text,/<Hangup/);assert.equal(f.store.list('token').length,0);});
 test('login silence offers one reminder then ends',async t=>{const f=fixture(t);await step(f.server);assert.match((await step(f.server)).text,/<Gather/);assert.match((await step(f.server)).text,/<Hangup/);});
+
+test('original welcome and incomplete PIN wording remain unchanged while loop limits apply',async t=>{
+ const f=fixture(t),u=enroll(f.service);
+ let r=await step(f.server);assert.ok(r.text.includes("שלום, כאן מרקם ליין, עם עוזר בינה מלאכותית. טוב שאתם כאן. הקישו קוד משתמש, שש ספרות."));
+ r=await press(f,'12');assert.ok(r.text.includes("ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות."));
+ r=await press(f,u.user.code);assert.ok(r.text.includes('עכשיו הקישו את הקוד האישי, שש ספרות.'));
+ r=await press(f,'12');assert.ok(r.text.includes("לא התקבל קוד מלא. זה בסדר, אפשר לנסות שוב בנחת. הקישו את כל שש הספרות של הקוד האישי. יש לכם שלושים שניות."));
+ assert.equal(f.store.get('call',id).phase,'login-pin');
+});

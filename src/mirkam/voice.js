@@ -78,19 +78,19 @@ export function createVoice(service,transport={}){
       if(c.phase==='entry'){
         if(digit==='#'){
           c=save({...c,phase:'login-code',silence:0,inputNonce:null});
-          out=gather('הקישו את קוד המשתמש, שש ספרות.',6);
+          out=gather('שלום, כאן מרקם ליין, עם עוזר בינה מלאכותית. טוב שאתם כאן. הקישו קוד משתמש, שש ספרות.',6);
         }else if(digit||c.entryPresented){out=endLogin();}
         else{
           c={...c,entryPresented:true};
           out=gather(c.entryPrompt).replace('finishOnKey="#"','finishOnKey=""').replace('timeout="12"','timeout="8"').replace(redirect(),'<Hangup/>');
         }
-      }else if(c.phase.startsWith('login-')&&c.silence>2){out=endLogin('נסיים כעת. אפשר להתקשר שוב כשהקודים מוכנים.');}
+      }else if(c.phase.startsWith('login-')&&c.silence>2){out=endLogin('לא התקבלה הקשה במשך כמה ניסיונות. נסיים עכשיו, ואפשר להתקשר שוב כשהקודים מוכנים.');}
       else if(c.silence>5){out=say('לא התקבל קלט. העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
       else if(c.phase==='login-code'){
-        if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('כעת הקישו את הקוד האישי, שש ספרות.',6);}
+        if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('עכשיו הקישו את הקוד האישי, שש ספרות.',6);}
         else {
           if(digit)c=save({...c,inputErrors:(c.inputErrors||0)+1});
-          out=c.inputErrors>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather(digit?'נדרשות שש ספרות. הקישו שוב את קוד המשתמש.':'הקישו את קוד המשתמש, שש ספרות.',6);
+          out=c.inputErrors>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather(c.silence>1||digit?'ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות.':'שלום, כאן מרקם ליין, עם עוזר בינה מלאכותית. טוב שאתם כאן. הקישו קוד משתמש, שש ספרות.',6);
         }
       }else if(c.phase==='login-pin'){
         if(/^\d{6}$/.test(digit)){
@@ -104,7 +104,7 @@ export function createVoice(service,transport={}){
           }
         }else{
           if(digit)c=save({...c,inputErrors:(c.inputErrors||0)+1});
-          out=c.inputErrors>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather(digit?'נדרשות שש ספרות. הקישו שוב את הקוד האישי.':'הקישו את הקוד האישי, שש ספרות.',6);
+          out=c.inputErrors>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather('לא התקבל קוד מלא. זה בסדר, אפשר לנסות שוב בנחת. הקישו את כל שש הספרות של הקוד האישי. יש לכם שלושים שניות.',6);
         }
       }else{
         let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id,token=c.token,validate=()=>service.identity.authenticate(token);
