@@ -118,8 +118,8 @@ test('login gives 30 seconds, retries incomplete PIN without locking and explain
  let r=await step(server);assert.match(r.text,/timeout="30"/);
  let c=store.get('call',id);await step(server,{Digits:u.user.code},'?input='+c.inputNonce);
  c=store.get('call',id);r=await step(server,{Digits:'12'},'?input='+c.inputNonce);
- assert.match(r.text,/לא התקבל קוד מלא/);assert.equal(store.list('failure').length,0);assert.equal(store.get('call',id).phase,'login-pin');
- for(let n=0;n<6;n++)r=await step(server);
+ assert.match(r.text,/נדרשות שש ספרות/);assert.equal(store.list('failure').length,0);assert.equal(store.get('call',id).phase,'login-pin');
+ for(let n=0;n<3;n++){r=await step(server);if(r.text.includes("<Hangup"))break;}
  assert.match(r.text,/<Hangup/);assert.match(r.text,/כשהקודים מוכנים/);assert.doesNotMatch(r.text,/העבודה שאושרה נשמרה/);
 });
 test('speech sends the selected warm voice and Hebrew delivery instructions',async t=>{
@@ -141,7 +141,7 @@ test('family review offers replay and re-recording without sending or carrying o
 });
 test('repeated login prompt is short and keeps six-digit authentication',async t=>{
  const {server}=fixture(t);const first=await step(server),again=await step(server);
- assert.match(first.text,/טוב שאתם כאן/);assert.doesNotMatch(first.text,/תמלולים והקלטות/);assert.doesNotMatch(again.text,/תמלולים והקלטות/);assert.match(again.text,/numDigits="6"/);assert.match(again.text,/timeout="30"/);
+ assert.match(first.text,/הקישו את קוד המשתמש, שש ספרות/);assert.doesNotMatch(first.text,/תמלולים והקלטות/);assert.doesNotMatch(again.text,/תמלולים והקלטות/);assert.match(again.text,/numDigits="6"/);assert.match(again.text,/timeout="30"/);
 });
 test('owner can compare cached Hebrew samples; unauthenticated and unsupported choices cannot spend',async t=>{
  const {server,service}=fixture(t);let calls=0;
@@ -406,4 +406,33 @@ test('retry after temporary upload expires reuses the original archived speech',
  const retry=await upload(changed);assert.equal(retry.status,200);
  assert.equal(store.list('audio').length,1);
  assert.equal(store.get('bridge-audio',retry.body.recording).data,wav().toString('base64'));
+});
+
+for(const digit of ['7','8'])test('navigation '+digit+' from active wait survives an asynchronous answer failure',async t=>{
+ const {server,service,store}=await prepared(t);let rejectAnswer;
+ service.providers.transcribe=async()=> 'שאלה';service.providers.chat=()=>new Promise((resolve,reject)=>{rejectAnswer=reject;});
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording},'?record=record');
+ for(let i=0;i<50&&!rejectAnswer;i++)await new Promise(r=>setImmediate(r));assert.ok(rejectAnswer);
+ await step(server);const nonce=store.get('call',id).inputNonce;
+ rejectAnswer(Error('unavailable'));
+ for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ const response=await step(server,{Digits:digit},'?input='+nonce);
+ assert.doesNotMatch(response.text,/הבחירה אינה שייכת/);
+ assert.equal(store.get('call',id).phase,'main');
+ if(digit==='7')assert.match(response.text,/<Hangup/);
+});
+
+test('keypress during waiting cannot approve a retry before the failure menu is presented',async t=>{
+ const {server,service,store}=await prepared(t);let rejectAnswer;
+ service.providers.transcribe=async()=> 'שאלה';service.providers.chat=()=>new Promise((resolve,reject)=>{rejectAnswer=reject;});
+ const upload=await request(server,'/voice-elements/record?call='+id+'&record=record',{method:'POST',body:wav(),headers:{authorization:'Bearer '+secret}});
+ await step(server,{RecordingUrl:upload.body.recording},'?record=record');
+ for(let i=0;i<50&&!rejectAnswer;i++)await new Promise(r=>setImmediate(r));assert.ok(rejectAnswer);
+ await step(server);const nonce=store.get('call',id).inputNonce;rejectAnswer(Error('unavailable'));
+ for(let i=0;i<50&&store.get('call',id).phase==='processing';i++)await new Promise(r=>setImmediate(r));
+ const response=await step(server,{Digits:'1'},'?input='+nonce);
+ assert.equal(store.get('call',id).phase,'job-error');assert.doesNotMatch(response.text,/<Record/);assert.match(response.text,/לניסיון נוסף/);
+ await step(server,{Digits:'1'},'?input='+nonce);assert.equal(store.get('call',id).phase,'job-error','old wait token cannot confirm the new menu');
+ await step(server,{Digits:'1'},'?input='+store.get('call',id).inputNonce);assert.equal(store.get('call',id).phase,'chat');
 });

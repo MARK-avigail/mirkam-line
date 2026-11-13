@@ -25,7 +25,7 @@ export function createVoice(service,transport={}){
       store.put('call',{...current,...result,jobId:null,processingMs:Date.now()-j.createdAt});
     })).catch(()=>store.atomic(()=>{
       const current=store.get('call',c.id);
-      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:'job-error',retryPhase:j.previous==='draft-clarify'?'draft':(['chat','ticket','family-compose','draft'].includes(j.previous)?j.previous:null),jobId:null,speech:null,error:null,recordNonce:null,inputNonce:null});
+      if(current?.jobId===j.id&&current.phase!=='ended')store.put('call',{...current,phase:'job-error',retryPhase:j.previous==='draft-clarify'?'draft':(['chat','ticket','family-compose','draft'].includes(j.previous)?j.previous:null),jobId:null,speech:null,error:null,recordNonce:null,retryPresented:false});
       store.put('voice-job',{...j,status:'failed'});
     })).catch(()=>{
       // Persistence may also fail while recording an error. Never let this
@@ -43,6 +43,7 @@ export function createVoice(service,transport={}){
     let c=store.get('call',data.CallSid),out='';
     const nonce=new URL(req.url,'http://localhost').searchParams;
     const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('<Gather ',['family-review','delivery-confirm','oversight-confirm'].includes(c.phase)?'<Gather clearDigits="true" ':'<Gather ').replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
+    const endLogin=(text='')=>{c=save({...c,phase:'ended',code:null,inputNonce:null,recordNonce:null});return (text?say(text):'')+'<Hangup/>';};
     const record=(text,maxLength=180)=>{c={...c,inputNonce:randomUUID(),recordNonce:randomUUID()};return `<Gather numDigits="1" finishOnKey="" action="/voice/step?input=${c.inputNonce}" method="POST" timeout="1">${say(text)}</Gather><Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="${maxLength}" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;};
 
     const familyMail=(uid,action='')=>{
@@ -66,20 +67,45 @@ export function createVoice(service,transport={}){
       return gather((part===0?'הודעה מ'+(contact?.name||'המשפחה')+'. ':'')+parts[part]+(last?' סוף ההודעות. לשמיעה חוזרת 3.':' להמשך 1. לשמיעה חוזרת 3.')+' לקטע הקודם 2. לתפריט הראשי 8.');
     };
     try{
-      if(!c)c=store.create('call','voice',{id:data.CallSid,phase:'login-code',silence:0});
+      if(!c){const entryPrompt=String(process.env.MIRKAM_ENTRY_PROMPT||'').trim().slice(0,500);c=store.create('call','voice',{id:data.CallSid,phase:entryPrompt?'entry':'login-code',entryPrompt,silence:0});}
+      if(c.phase==='ended'){res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response><Hangup/></Response>');}
       let digit=data.Digits||'';
-      if(digit&&(!c.inputNonce||nonce.get('input')!==c.inputNonce)){out=say('הבחירה אינה שייכת לשאלה הפעילה. נחזור לשאלה.')+redirect();res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+out+'</Response>');}
+      if(digit&&(!c.inputNonce||nonce.get('input')!==c.inputNonce)){out=c.phase==='entry'?endLogin():say('הבחירה אינה שייכת לשאלה הפעילה. נחזור לשאלה.')+redirect();res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+out+'</Response>');}
       if(data.RecordingUrl&&(!c.recordNonce||nonce.get('record')!==c.recordNonce)){out=say('ההקלטה אינה שייכת לשאלה הפעילה. העבודה נשמרה.')+redirect();res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+out+'</Response>');}
       if(digit)c=save({...c,inputNonce:null});if(data.RecordingUrl)c=save({...c,recordNonce:null});
       if(!digit&&!data.RecordingUrl&&c.phase!=='processing')c.silence++;
       else if(digit||data.RecordingUrl)c.silence=0;
-      if(c.silence>5){out=say(c.phase.startsWith('login-')?'לא התקבלה הקשה במשך כמה ניסיונות. נסיים עכשיו, ואפשר להתקשר שוב כשהקודים מוכנים.':'לא התקבל קלט. העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
+      if(c.phase==='entry'){
+        if(digit==='#'){
+          c=save({...c,phase:'login-code',silence:0,inputNonce:null});
+          out=gather('הקישו את קוד המשתמש, שש ספרות.',6);
+        }else if(digit||c.entryPresented){out=endLogin();}
+        else{
+          c={...c,entryPresented:true};
+          out=gather(c.entryPrompt).replace('finishOnKey="#"','finishOnKey=""').replace('timeout="12"','timeout="8"').replace(redirect(),'<Hangup/>');
+        }
+      }else if(c.phase.startsWith('login-')&&c.silence>2){out=endLogin('נסיים כעת. אפשר להתקשר שוב כשהקודים מוכנים.');}
+      else if(c.silence>5){out=say('לא התקבל קלט. העבודה שאושרה נשמרה. להתראות.')+'<Hangup/>';}
       else if(c.phase==='login-code'){
-        if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('עכשיו הקישו את הקוד האישי, שש ספרות.',6);}
-        else out=gather(c.silence>1||digit?'ננסה שוב בנחת. הקישו את קוד המשתמש, שש ספרות.':'שלום, כאן מרקם ליין, עם עוזר בינה מלאכותית. טוב שאתם כאן. הקישו קוד משתמש, שש ספרות.',6);
+        if(/^\d{6}$/.test(digit)){c=save({...c,code:digit,phase:'login-pin'});out=gather('כעת הקישו את הקוד האישי, שש ספרות.',6);}
+        else {
+          if(digit)c=save({...c,inputErrors:(c.inputErrors||0)+1});
+          out=c.inputErrors>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather(digit?'נדרשות שש ספרות. הקישו שוב את קוד המשתמש.':'הקישו את קוד המשתמש, שש ספרות.',6);
+        }
       }else if(c.phase==='login-pin'){
-        if(/^\d{6}$/.test(digit)){try{const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);c=save({...c,token:login.token,userId:login.user.id,phase:'main',speech:`שלום ${login.user.name.split(/\s+/)[0]}, מה שלומך? אני כאן לעזור.`});out=say('קטעי הדיבור שלכם בכל השלוחות מוקלטים ונשמרים לארבעה חודשים. בעלת המערכת יכולה להאזין להם לצורך טיפול ובקרה. הקודים המוקשים אינם מוקלטים.')+redirect();}catch{c=save({...c,attempts:(c.attempts||0)+1});out=say('הקוד לא זוהה.')+(c.attempts>=3?'<Hangup/>':gather('הקישו את הקוד האישי.',6));}}
-        else out=gather('לא התקבל קוד מלא. זה בסדר, אפשר לנסות שוב בנחת. הקישו את כל שש הספרות של הקוד האישי. יש לכם שלושים שניות.',6);
+        if(/^\d{6}$/.test(digit)){
+          try{
+            const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);
+            c=save({...c,token:login.token,code:null,userId:login.user.id,phase:'main',speech:`שלום ${login.user.name.split(/\s+/)[0]}, מה שלומך? אני כאן לעזור.`});
+            out=say('קטעי הדיבור שלכם בכל השלוחות מוקלטים ונשמרים לארבעה חודשים. בעלת המערכת יכולה להאזין להם לצורך טיפול ובקרה. הקודים המוקשים אינם מוקלטים.')+redirect();
+          }catch{
+            c=save({...c,attempts:(c.attempts||0)+1,code:null,phase:'login-code'});
+            out=c.attempts>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather('פרטי הכניסה לא התאימו. הקישו שוב את קוד המשתמש, שש ספרות.',6);
+          }
+        }else{
+          if(digit)c=save({...c,inputErrors:(c.inputErrors||0)+1});
+          out=c.inputErrors>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather(digit?'נדרשות שש ספרות. הקישו שוב את הקוד האישי.':'הקישו את הקוד האישי, שש ספרות.',6);
+        }
       }else{
         let user;try{user=service.identity.authenticate(c.token).user;}catch{c=save({...c,token:null,phase:'login-code',code:null});res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});return res.end('<Response>'+say('הכניסה הסתיימה או שהחשבון אינו זמין. יש להתקשר מחדש או לפנות למשרד.')+'<Hangup/></Response>');}const uid=user.id,token=c.token,validate=()=>service.identity.authenticate(token);
         if(['delivery-channel','delivery-confirm'].includes(c.phase)&&(c.reviewCompleted!==true||c.reviewHash!==reviewHash(c.draftId,uid))){c=save({...c,phase:'draft',reviewHash:null,reviewCompleted:false,reviewIndex:0});digit='';}
@@ -100,8 +126,8 @@ export function createVoice(service,transport={}){
         else if(c.phase==='job-error'){
           // Never replay a failed recording or an approved delivery automatically.
           const retry=['chat','ticket','family-compose','draft'].includes(c.retryPhase);
-          if(digit==='1'&&retry){c=save({...c,phase:c.retryPhase,retryPhase:null,silence:0});out=redirect();}
-          else out=gather(retry?PROCESSING_FAILURE_PROMPT:DELIVERY_FAILURE_PROMPT);
+          if(digit==='1'&&retry&&c.retryPresented===true){c=save({...c,phase:c.retryPhase,retryPhase:null,silence:0});out=redirect();}
+          else {c={...c,retryPresented:true};out=gather(retry?PROCESSING_FAILURE_PROMPT:DELIVERY_FAILURE_PROMPT);}
         }
         else if(c.phase==='main'){
           const completion=c.speech;c={...c,speech:null};
