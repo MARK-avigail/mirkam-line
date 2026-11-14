@@ -122,6 +122,38 @@ class ProofTests(unittest.TestCase):
                 asyncio.run(probe.collect({}))
         hangup.assert_called_once_with('test-session', {})
 
+    def test_failure_diagnostics_distinguish_wrong_configuration(self):
+        event = start()
+        event['session']['model'] = 'different-model'
+        socket = Socket([event, {'type': 'session.closed'}])
+        diagnostics = {}
+        with patch('websockets.asyncio.client.connect', return_value=socket):
+            with self.assertRaisesRegex(ValueError, 'RESOLVED_CONFIGURATION_MISMATCH'):
+                asyncio.run(probe.collect({}, diagnostics))
+        self.assertFalse(diagnostics['model_matches'])
+        self.assertTrue(diagnostics['voice_matches'])
+        self.assertTrue(diagnostics['closed'])
+
+    def test_provider_diagnostics_never_echo_messages_or_unknown_values(self):
+        capture = probe.Capture()
+        with self.assertRaisesRegex(ValueError, 'PROVIDER_ERROR'):
+            capture.accept({'type': 'error', 'error': {
+                'code': 'private-key-test', 'type': 'invalid_request_error',
+                'param': 'private-key-test', 'message': 'private-key-test'}})
+        self.assertNotIn('private-key-test', json.dumps(capture.diagnostics))
+        self.assertEqual(capture.diagnostics['provider_type'], 'invalid_request_error')
+        self.assertEqual(probe.failure_code(ValueError('private-key-test')), 'UNCLASSIFIED_ValueError')
+
+    def test_cleanup_error_preserves_initial_failure(self):
+        socket = Socket([start(), {'type': 'error'}])
+        diagnostics = {}
+        with patch('websockets.asyncio.client.connect', return_value=socket), \
+                patch.object(probe, 'emergency_hangup', return_value=True):
+            with self.assertRaisesRegex(ValueError, 'PROVIDER_ERROR'):
+                asyncio.run(probe.collect({}, diagnostics))
+        self.assertIn('cleanup_error', diagnostics)
+        self.assertTrue(diagnostics['emergency_hangup_confirmed'])
+
 
 if __name__ == '__main__':
     unittest.main()

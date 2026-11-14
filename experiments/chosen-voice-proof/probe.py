@@ -19,6 +19,31 @@ VOICE = 'voice_6ad601faaa188191aa00d6384fc09ca8'
 PHRASE = 'שלום, כאן ליין, עוזרת הבינה המלאכותית של מרקם ליין. זו בדיקת קול.'
 RATE = 24000
 MAX_BYTES = RATE * 2 * 30
+SAFE_FAILURES = frozenset({
+    'INVALID_SESSION', 'RESOLVED_CONFIGURATION_MISMATCH', 'DUPLICATE_START',
+    'PROVIDER_ERROR', 'AUDIO_OUTSIDE_SESSION', 'AUDIO_LIMIT', 'TRANSCRIPT_LIMIT',
+    'SESSION_NOT_FINALIZED', 'AUDIO_MISSING_OR_INCOMPLETE', 'SILENT_AUDIO',
+    'INVALID_TELEPHONE_FORMAT', 'TELEPHONE_AUDIO_TOO_SHORT', 'CLOSED_BEFORE_START',
+})
+SAFE_PROVIDER_CODES = frozenset({
+    'invalid_request_error', 'authentication_error', 'permission_denied',
+    'model_not_found', 'voice_not_found', 'unsupported_value', 'unsupported_parameter',
+    'invalid_value', 'unknown_parameter', 'rate_limit_exceeded', 'insufficient_quota',
+    'invalid_api_key', 'missing_required_parameter', 'server_error', 'session_expired',
+})
+SAFE_PROVIDER_PARAMS = frozenset({
+    'model', 'session', 'session.model', 'session.store', 'session.instructions',
+    'session.audio', 'session.audio.format', 'session.audio.format.type',
+    'session.audio.format.rate', 'session.audio.output', 'session.audio.output.voice',
+    'session.audio.output.voice.id', 'session.delegation', 'session.delegation.type',
+    'session.input', 'type', 'event_id',
+})
+
+
+def failure_code(error):
+    # Only our fixed error identifiers may appear in public diagnostics.
+    message = str(error)
+    return message if message in SAFE_FAILURES else 'UNCLASSIFIED_' + type(error).__name__
 
 
 def configuration():
@@ -40,6 +65,8 @@ class Capture:
         self.closed = False
         self.audio = bytearray()
         self.transcript = ''
+        self.diagnostics = {'started': False, 'closed': False, 'audio_bytes': 0,
+                            'provider_error': False}
 
     def accept(self, event):
         kind = event.get('type')
@@ -50,6 +77,13 @@ class Capture:
                 raise ValueError('INVALID_SESSION')
             self.session_id = sid  # retain for cleanup even if configuration differs
             audio = session.get('audio', {})
+            self.diagnostics.update({
+                'session_received': True,
+                'model_matches': session.get('model') == 'gpt-live-1',
+                'format_matches': audio.get('format') == {'type': 'audio/pcm', 'rate': RATE},
+                'voice_matches': audio.get('output', {}).get('voice') == {'id': VOICE},
+                'voice_id_matches': isinstance(audio.get('output', {}).get('voice'), dict) and audio['output']['voice'].get('id') == VOICE,
+            })
             if (audio.get('format') != {'type': 'audio/pcm', 'rate': RATE}
                     or audio.get('output', {}).get('voice') != {'id': VOICE}
                     or session.get('model') != 'gpt-live-1'):
@@ -57,7 +91,15 @@ class Capture:
             if self.started:
                 raise ValueError('DUPLICATE_START')
             self.started = True
+            self.diagnostics['started'] = True
         elif kind == 'error':
+            details = event.get('error', {})
+            self.diagnostics['provider_error'] = True
+            for field in ('code', 'type'):
+                value = details.get(field)
+                self.diagnostics['provider_' + field] = value if isinstance(value, str) and value in SAFE_PROVIDER_CODES else 'unclassified'
+            param = details.get('param')
+            self.diagnostics['provider_param'] = param if isinstance(param, str) and param in SAFE_PROVIDER_PARAMS else 'unclassified'
             raise ValueError('PROVIDER_ERROR')  # never print provider payloads
         elif kind == 'session.output_audio.delta':
             if not self.started or self.closed:
@@ -66,6 +108,7 @@ class Capture:
             if len(self.audio) + len(chunk) > MAX_BYTES:
                 raise ValueError('AUDIO_LIMIT')
             self.audio.extend(chunk)
+            self.diagnostics['audio_bytes'] = len(self.audio)
         elif kind == 'session.output_transcript.delta':
             delta = event.get('delta', '')
             if not isinstance(delta, str) or len(self.transcript) + len(delta) > 12000:
@@ -73,6 +116,7 @@ class Capture:
             self.transcript += delta
         elif kind == 'session.closed':
             self.closed = True
+            self.diagnostics['closed'] = True
 
     def validate(self):
         if not self.started or not self.closed:
@@ -128,7 +172,7 @@ def emergency_hangup(sid, headers):
         return 200 <= response.status < 300
 
 
-async def collect(headers):
+async def collect(headers, diagnostics=None):
     from websockets.asyncio.client import connect
     capture = Capture()
     try:
@@ -136,6 +180,7 @@ async def collect(headers):
         async with connect('wss://api.openai.com/v1/live/sessions',
                            additional_headers=headers, open_timeout=10,
                            close_timeout=2, max_size=1024*1024) as socket:
+            primary_error = None
             try:
                 await socket.send(json.dumps({'type': 'session.start', 'session': configuration()}))
                 async with asyncio.timeout(10):
@@ -149,12 +194,20 @@ async def collect(headers):
                             capture.accept(json.loads(await socket.recv()))
                 except TimeoutError:
                     pass  # observation window only; not proof of complete speech
+            except Exception as error:
+                primary_error = error
+                raise
             finally:
                 if not capture.closed:
-                    await socket.send(json.dumps({'type': 'session.close'}))
-                    async with asyncio.timeout(5):
-                        while not capture.closed:
-                            capture.accept(json.loads(await socket.recv()))
+                    try:
+                        await socket.send(json.dumps({'type': 'session.close'}))
+                        async with asyncio.timeout(5):
+                            while not capture.closed:
+                                capture.accept(json.loads(await socket.recv()))
+                    except Exception as cleanup_error:
+                        capture.diagnostics['cleanup_error'] = failure_code(cleanup_error)
+                        if primary_error is None:
+                            raise
     finally:
         if not capture.closed:
             confirmed = False
@@ -164,6 +217,9 @@ async def collect(headers):
                 except Exception:
                     pass
             print('CLEANUP_HANGUP_CONFIRMED' if confirmed else 'CLEANUP_UNCONFIRMED_DO_NOT_REPEAT')
+            capture.diagnostics['emergency_hangup_confirmed'] = confirmed
+        if diagnostics is not None:
+            diagnostics.update(capture.diagnostics)
     capture.validate()
     return capture
 
@@ -185,15 +241,19 @@ def main():
     if project:
         headers['OpenAI-Project'] = project
     os.umask(0o077)
+    diagnostics = {}
+    folder = tempfile.mkdtemp(prefix='mirkam-chosen-voice-proof-', dir=args.output_parent)
     try:
-        capture = asyncio.run(collect(headers))
-        folder = tempfile.mkdtemp(prefix='mirkam-chosen-voice-proof-', dir=args.output_parent)
+        capture = asyncio.run(collect(headers, diagnostics))
         export(capture, folder, capture_only=args.capture_only)
         print(('AUDIO_CAPTURED' if args.capture_only else 'AUDIO_CAPTURED_AND_CONVERTED')
               + ' (not telephone acceptance): ' + folder)
         return 0
     except Exception as error:
-        print('PROOF_FAILED: ' + type(error).__name__ + '; no production change')
+        diagnostics['failure'] = failure_code(error)
+        (Path(folder) / 'failure.json').write_text(json.dumps(diagnostics, indent=2))
+        print('PROOF_FAILED: ' + diagnostics['failure'] + '; no production change')
+        print('VOICE_DIAGNOSTIC: ' + json.dumps(diagnostics, sort_keys=True))
         return 1
 
 
