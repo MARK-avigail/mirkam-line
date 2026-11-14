@@ -24,20 +24,29 @@ export class Identity {
     });
   }
   user(id){const u=this.store.get('user',id);if(!u||!u.active)throw Error('החשבון אינו זמין.');return u;}
-  login(code,pin,source='unknown') {
-    const now=Date.now(),key=digest('code:'+String(code)),sourceKey=digest('source:'+source);
-    const failures=[key,sourceKey].map(id=>this.store.get('failure',id));
-    if(failures.some((f,i)=>f&&f.until>now&&f.count>=(i?20:3)))throw Error('ניסיונות הכניסה הוגבלו זמנית. אפשר לפנות למשרד.');
-    const u=this.store.list('user').find(u=>u.code===code);
-    const candidate=hashPin(typeof pin==='string'&&/^\d{6}$/.test(pin)?pin:'invalid',u?.pinSalt||'unknown-account-salt');
-    if(!u?.active||typeof code!=='string'||!/^\d{6}$/.test(code)||typeof pin!=='string'||!/^\d{6}$/.test(pin)||!timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(u.pinHash,'hex'))) {
-      for(const id of [key,sourceKey]){const f=this.store.get('failure',id);if(f)this.store.put('failure',{...f,count:f.until>now?f.count+1:1,until:f.until>now?f.until:now+900000});else this.store.create('failure','auth',{id,count:1,until:now+900000});}
-      throw Error('פרטי הכניסה לא זוהו.');
-    }
-    this.store.remove('failure',key);
-    const token=randomBytes(32).toString('hex');this.store.create('token',u.id,{id:digest(token),expiresAt:now+3600000,role:'member'});
-    return {token,user:safeUser(u)};
+  login(code,pin,source='unknown',onAuthenticated) {
+    // Rejections are returned from the transaction so their counters commit.
+    // Storage faults throw inside it, rolling back all related writes.
+    const outcome=this.store.atomic(()=>{
+      const now=Date.now(),key=digest('code:'+String(code)),sourceKey=digest('source:'+source);
+      const failures=[key,sourceKey].map(id=>this.store.get('failure',id));
+      if(failures.some((f,i)=>f&&f.until>now&&f.count>=(i?20:3)))return {rejected:{message:'ניסיונות הכניסה הוגבלו זמנית. אפשר לפנות למשרד.',code:'AUTH_LIMITED'}};
+      const u=this.store.list('user').find(u=>u.code===code);
+      const candidate=hashPin(typeof pin==='string'&&/^\d{6}$/.test(pin)?pin:'invalid',u?.pinSalt||'unknown-account-salt');
+      if(!u?.active||typeof code!=='string'||!/^\d{6}$/.test(code)||typeof pin!=='string'||!/^\d{6}$/.test(pin)||!timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(u.pinHash,'hex'))) {
+        for(const id of [key,sourceKey]){const f=this.store.get('failure',id);if(f)this.store.put('failure',{...f,count:f.until>now?f.count+1:1,until:f.until>now?f.until:now+900000});else this.store.create('failure','auth',{id,count:1,until:now+900000});}
+        return {rejected:{message:'פרטי הכניסה לא זוהו.',code:'AUTH_INVALID'}};
+      }
+      this.store.remove('failure',key);
+      const token=randomBytes(32).toString('hex');this.store.create('token',u.id,{id:digest(token),expiresAt:now+3600000,role:'member'});
+      const login={token,user:safeUser(u)};
+      if(onAuthenticated){const result=onAuthenticated(login);if(result&&typeof result.then==='function')throw Error('Login completion must be synchronous');}
+      return {login};
+    });
+    if(outcome.rejected)throw Object.assign(Error(outcome.rejected.message),{code:outcome.rejected.code});
+    return outcome.login;
   }
+
   authenticate(token){if(typeof token!=='string'||!/^[a-f0-9]{64}$/.test(token))throw Error('נדרשת כניסה.');const t=this.store.get('token',digest(token));if(!t||t.expiresAt<Date.now())throw Error('נדרשת כניסה מחדש.');return {user:safeUser(this.user(t.owner)),tokenId:t.id};}
   logout(token){this.store.remove('token',digest(token));}
   revoke(id){for(const t of this.store.list('token',id))this.store.remove('token',t.id);}

@@ -42,7 +42,12 @@ export function createVoice(service,transport={}){
     if(!(transport.callPattern||/^CA[a-f0-9]{32}$/i).test(data.CallSid||'')){res.writeHead(400);return res.end();}
     let c=store.get('call',data.CallSid),out='';
     const nonce=new URL(req.url,'http://localhost').searchParams;
-    const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('<Gather ',['family-review','delivery-confirm','oversight-confirm'].includes(c.phase)?'<Gather clearDigits="true" ':'<Gather ').replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
+    const gather=(text,digits=1)=>{c={...c,inputNonce:randomUUID()};return gatherXml(text,digits).replace('<Gather ',['login-code','login-pin','family-review','delivery-confirm','oversight-confirm'].includes(c.phase)?'<Gather clearDigits="true" ':'<Gather ').replace('action="/voice/step"',`action="/voice/step?input=${c.inputNonce}"`);};
+    const loginUnavailable=()=>{
+      console.error('VOICE_LOGIN_UNAVAILABLE');
+      res.writeHead(503,{'Content-Type':'text/xml; charset=utf-8','Cache-Control':'no-store'});
+      return res.end('<Response><Hangup/></Response>');
+    };
     const endLogin=(text='')=>{c=save({...c,phase:'ended',code:null,inputNonce:null,recordNonce:null});return (text?say(text):'')+'<Hangup/>';};
     const record=(text,maxLength=180)=>{c={...c,inputNonce:randomUUID(),recordNonce:randomUUID()};return `<Gather numDigits="1" finishOnKey="" action="/voice/step?input=${c.inputNonce}" method="POST" timeout="1">${say(text)}</Gather><Record action="/voice/step?record=${c.recordNonce}" method="POST" maxLength="${maxLength}" timeout="5" finishOnKey="#" playBeep="true"/>${redirect()}`;};
 
@@ -95,10 +100,14 @@ export function createVoice(service,transport={}){
       }else if(c.phase==='login-pin'){
         if(/^\d{6}$/.test(digit)){
           try{
-            const login=service.identity.login(c.code,digit,'voice:'+data.CallSid);
-            c=save({...c,token:login.token,code:null,userId:login.user.id,phase:'main',speech:`שלום ${login.user.name.split(/\s+/)[0]}, מה שלומך? אני כאן לעזור.`});
+            let authenticatedCall;
+            service.identity.login(c.code,digit,'voice:'+data.CallSid,login=>{
+              authenticatedCall=save({...c,token:login.token,code:null,userId:login.user.id,phase:'main',speech:`שלום ${login.user.name.split(/\s+/)[0]}, מה שלומך? אני כאן לעזור.`});
+            });
+            c=authenticatedCall;
             out=say('קטעי הדיבור שלכם בכל השלוחות מוקלטים ונשמרים לארבעה חודשים. בעלת המערכת יכולה להאזין להם לצורך טיפול ובקרה. הקודים המוקשים אינם מוקלטים.')+redirect();
-          }catch{
+          }catch(error){
+            if(!['AUTH_INVALID','AUTH_LIMITED'].includes(error.code))throw error;
             c=save({...c,attempts:(c.attempts||0)+1,code:null,phase:'login-code'});
             out=c.attempts>=3?endLogin('לא הצלחנו להשלים את הכניסה. אפשר לפנות למשרד לעזרה.'):gather('פרטי הכניסה לא התאימו. הקישו שוב את קוד המשתמש, שש ספרות.',6);
           }
@@ -224,8 +233,16 @@ export function createVoice(service,transport={}){
         }else{c=save({...c,phase:'main'});out=redirect();}
         if(c.error){out=say(c.error)+out;c=save({...c,error:null});}
       }
-    }catch(e){out=say(e.message)+gather('אפשר לחזור לתפריט הראשי בהקשה על 8, או לשמור ולצאת בהקשה על 7.');}
-    if(c){try{save(c);}catch{ /* Another event won the revision; do not overwrite it. */ }}
+    }catch(e){
+      // Fail closed on technical entry errors; the bridge ends a failed HTTP
+      // step. Do not speak internal errors or count them as wrong credentials.
+      if(!c||c.phase.startsWith('login-')||c.phase==='entry')return loginUnavailable();
+      out=say(e.message)+gather('אפשר לחזור לתפריט הראשי בהקשה על 8, או לשמור ולצאת בהקשה על 7.');}
+    if(c){try{save(c);}catch{
+      // Never issue a login question whose nonce was not persisted.
+      if(c.phase.startsWith('login-')||c.phase==='entry')return loginUnavailable();
+      // Another event won the revision; do not overwrite it.
+    }}
     res.writeHead(200,{'Content-Type':'text/xml; charset=utf-8'});res.end('<Response>'+out+'</Response>');
   };
 }
