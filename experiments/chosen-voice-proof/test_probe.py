@@ -154,6 +154,49 @@ class ProofTests(unittest.TestCase):
         self.assertIn('cleanup_error', diagnostics)
         self.assertTrue(diagnostics['emergency_hangup_confirmed'])
 
+    def test_live_start_sequence_includes_silence_and_one_greeting(self):
+        socket = Socket([start(), {'type': 'session.commentary.appended'},
+                         {'type': 'session.output_audio.delta',
+                          'delta': base64.b64encode(synthetic_audio()).decode()},
+                         {'type': 'session.closed'}])
+        diagnostics = {}
+        with patch('websockets.asyncio.client.connect', return_value=socket):
+            asyncio.run(probe.collect({}, diagnostics))
+        self.assertEqual([x['type'] for x in socket.sent[:3]],
+                         ['session.start', 'session.input_audio.append', 'session.commentary.append'])
+        greetings = [x for x in socket.sent if x['type'] == 'session.commentary.append']
+        self.assertEqual(len(greetings), 1)
+        self.assertIsNone(greetings[0]['delegation_id'])
+        self.assertEqual(greetings[0]['content'], socket.sent[0]['session']['input'][0]['content'][0]['text'])
+        self.assertEqual(base64.b64decode(socket.sent[1]['audio']), bytes(960))
+        self.assertTrue(diagnostics['greeting_acknowledged'])
+
+    def test_continuous_silence_is_paced_and_stops_on_close(self):
+        capture = probe.Capture()
+        socket = Socket([])
+        delays = []
+        async def sleep(delay):
+            delays.append(delay)
+            if len(delays) == 4:
+                capture.closed = True
+        with patch('probe.asyncio.sleep', side_effect=sleep):
+            asyncio.run(probe.stream_silence(socket, capture))
+        self.assertEqual(delays, [0.02] * 4)
+        self.assertEqual(len(socket.sent), 3)
+        self.assertEqual(capture.diagnostics['input_audio_frames'], 3)
+
+    def test_zero_audio_is_still_failure_after_greeting(self):
+        socket = Socket([start(), {'type': 'session.commentary.appended'},
+                         {'type': 'session.output_audio.delta',
+                          'delta': base64.b64encode(bytes(584640)).decode()},
+                         {'type': 'session.closed'}])
+        diagnostics = {}
+        with patch('websockets.asyncio.client.connect', return_value=socket):
+            with self.assertRaisesRegex(ValueError, 'SILENT_AUDIO'):
+                asyncio.run(probe.collect({}, diagnostics))
+        self.assertEqual(diagnostics['audio_bytes'], 584640)
+        self.assertTrue(diagnostics['closed'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -65,3 +65,15 @@ References checked 2026-11-14:
 - https://developers.openai.com/api/docs/guides/voice-websockets
 - https://developers.openai.com/api/docs/guides/live-conversations
 - Existing `integrations/voice-elements/Program.cs`, `ConvertSpeech`.
+
+## Live attempt and corrected greeting sequence (2026-11-14)
+The user ran 721e800 on the server. Diagnostics showed all requested model,
+voice and format checks true, no provider error, session closed, and 584640
+zero-valued audio bytes (12.18 seconds): SILENT_AUDIO. No voice playback proved.
+The experiment had omitted continuous input and the post-start greeting request.
+It now sends paced 20ms silent PCM frames and exactly one
+session.commentary.append after session.started, matching startup instructions.
+Sender/receiver tasks stop before session.close, and failures propagate.
+Fifteen local tests pass; provider events are simulated. The revised sequence
+has not been verified against live audio yet. No production changes.
+Reference: https://developers.openai.com/api/docs/guides/live-conversations#greet-before-the-caller-speaks

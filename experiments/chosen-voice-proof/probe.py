@@ -11,14 +11,17 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import uuid
 import urllib.request
 import urllib.parse
 import wave
 
 VOICE = 'voice_6ad601faaa188191aa00d6384fc09ca8'
 PHRASE = 'שלום, כאן ליין, עוזרת הבינה המלאכותית של מרקם ליין. זו בדיקת קול.'
+GREETING = 'התחילי לדבר עכשיו בעברית. הקריאי פעם אחת את המשפט הבא, ואז המתיני בשקט: ' + PHRASE
 RATE = 24000
 MAX_BYTES = RATE * 2 * 30
+SILENCE_FRAME = base64.b64encode(bytes(RATE * 2 // 50)).decode('ascii')
 SAFE_FAILURES = frozenset({
     'INVALID_SESSION', 'RESOLVED_CONFIGURATION_MISMATCH', 'DUPLICATE_START',
     'PROVIDER_ERROR', 'AUDIO_OUTSIDE_SESSION', 'AUDIO_LIMIT', 'TRANSCRIPT_LIMIT',
@@ -54,7 +57,7 @@ def configuration():
                   'output': {'voice': {'id': VOICE}}},
         'delegation': {'type': 'client'},
         'input': [{'type': 'message', 'role': 'developer',
-                   'content': [{'type': 'input_text', 'text': 'הקריאי עכשיו: ' + PHRASE}]}],
+                   'content': [{'type': 'input_text', 'text': GREETING}]}],
     }
 
 
@@ -66,7 +69,8 @@ class Capture:
         self.audio = bytearray()
         self.transcript = ''
         self.diagnostics = {'started': False, 'closed': False, 'audio_bytes': 0,
-                            'provider_error': False}
+                            'provider_error': False, 'input_audio_frames': 0,
+                            'greeting_sent': False, 'greeting_acknowledged': False}
 
     def accept(self, event):
         kind = event.get('type')
@@ -117,6 +121,8 @@ class Capture:
         elif kind == 'session.closed':
             self.closed = True
             self.diagnostics['closed'] = True
+        elif kind == 'session.commentary.appended':
+            self.diagnostics['greeting_acknowledged'] = True
 
     def validate(self):
         if not self.started or not self.closed:
@@ -188,12 +194,32 @@ async def collect(headers, diagnostics=None):
                         capture.accept(json.loads(await socket.recv()))
                         if capture.closed:
                             raise ValueError('CLOSED_BEFORE_START')
+                # Live needs a running audio input, even before a caller speaks.
+                # This probe sends only paced digital silence, never caller data.
+                await send_silence_frame(socket, capture)
+                await socket.send(json.dumps({
+                    'type': 'session.commentary.append',
+                    'event_id': 'greeting_' + uuid.uuid4().hex,
+                    'delegation_id': None, 'content': GREETING,
+                }))
+                capture.diagnostics['greeting_sent'] = True
+
+                async def receive():
+                    while not capture.closed:
+                        capture.accept(json.loads(await socket.recv()))
+
+                sender = asyncio.create_task(stream_silence(socket, capture))
+                receiver = asyncio.create_task(receive())
                 try:
-                    async with asyncio.timeout(12):
-                        while not capture.closed:
-                            capture.accept(json.loads(await socket.recv()))
-                except TimeoutError:
-                    pass  # observation window only; not proof of complete speech
+                    done, _ = await asyncio.wait({sender, receiver}, timeout=12,
+                                                  return_when=asyncio.FIRST_COMPLETED)
+                    for task in done:
+                        task.result()  # propagate send/receive failure promptly
+                    # Timeout is an observation window, not speech completion.
+                finally:
+                    sender.cancel()
+                    receiver.cancel()
+                    await asyncio.gather(sender, receiver, return_exceptions=True)
             except Exception as error:
                 primary_error = error
                 raise
@@ -222,6 +248,19 @@ async def collect(headers, diagnostics=None):
             diagnostics.update(capture.diagnostics)
     capture.validate()
     return capture
+
+
+async def send_silence_frame(socket, capture):
+    await socket.send(json.dumps({'type': 'session.input_audio.append', 'audio': SILENCE_FRAME}))
+    capture.diagnostics['input_audio_frames'] += 1
+
+
+async def stream_silence(socket, capture):
+    while not capture.closed:
+        # 20 ms of mono PCM16 at 24 kHz per frame; no accelerated file upload.
+        await asyncio.sleep(0.02)
+        if not capture.closed:
+            await send_silence_frame(socket, capture)
 
 
 def main():
