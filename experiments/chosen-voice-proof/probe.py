@@ -45,6 +45,9 @@ SAFE_PROVIDER_PARAMS = frozenset({
 
 def failure_code(error):
     # Only our fixed error identifiers may appear in public diagnostics.
+    status = getattr(getattr(error, 'response', None), 'status_code', None)
+    if type(error).__name__ == 'InvalidStatus' and isinstance(status, int) and 100 <= status <= 599:
+        return 'HANDSHAKE_HTTP_' + str(status)
     message = str(error)
     return message if message in SAFE_FAILURES else 'UNCLASSIFIED_' + type(error).__name__
 
@@ -181,6 +184,7 @@ def emergency_hangup(sid, headers):
 async def collect(headers, diagnostics=None):
     from websockets.asyncio.client import connect
     capture = Capture()
+    start_attempted = False
     try:
         # One attempt only. connect used as context manager, not reconnect iterator.
         async with connect('wss://api.openai.com/v1/live/sessions',
@@ -188,6 +192,7 @@ async def collect(headers, diagnostics=None):
                            close_timeout=2, max_size=1024*1024) as socket:
             primary_error = None
             try:
+                start_attempted = True
                 await socket.send(json.dumps({'type': 'session.start', 'session': configuration()}))
                 async with asyncio.timeout(10):
                     while not capture.started:
@@ -235,7 +240,10 @@ async def collect(headers, diagnostics=None):
                         if primary_error is None:
                             raise
     finally:
-        if not capture.closed:
+        capture.diagnostics['session_start_attempted'] = start_attempted
+        if not start_attempted:
+            print('SESSION_NOT_STARTED')
+        elif not capture.closed:
             confirmed = False
             if capture.session_id:
                 try:

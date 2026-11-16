@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import json
+import contextlib
+import io
 import math
 import struct
 import tempfile
@@ -196,6 +198,22 @@ class ProofTests(unittest.TestCase):
                 asyncio.run(probe.collect({}, diagnostics))
         self.assertEqual(diagnostics['audio_bytes'], 584640)
         self.assertTrue(diagnostics['closed'])
+
+    def test_handshake_rejection_does_not_claim_session_cleanup_failed(self):
+        from websockets.exceptions import InvalidStatus
+        from websockets.http11 import Response
+        from websockets.datastructures import Headers
+        error = InvalidStatus(Response(429, 'private-message', Headers()))
+        output = io.StringIO()
+        diagnostics = {}
+        with patch('websockets.asyncio.client.connect', side_effect=error), \
+                patch.object(probe, 'emergency_hangup') as hangup, contextlib.redirect_stdout(output):
+            with self.assertRaises(InvalidStatus):
+                asyncio.run(probe.collect({}, diagnostics))
+        self.assertFalse(diagnostics['session_start_attempted'])
+        hangup.assert_not_called()
+        self.assertEqual(output.getvalue().strip(), 'SESSION_NOT_STARTED')
+        self.assertEqual(probe.failure_code(error), 'HANDSHAKE_HTTP_429')
 
 
 if __name__ == '__main__':

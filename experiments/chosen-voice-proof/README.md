@@ -77,3 +77,24 @@ Sender/receiver tasks stop before session.close, and failures propagate.
 Fifteen local tests pass; provider events are simulated. The revised sequence
 has not been verified against live audio yet. No production changes.
 Reference: https://developers.openai.com/api/docs/guides/live-conversations#greet-before-the-caller-speaks
+
+## Handshake rejection: stop audio attempts (2026-11-15)
+The latest user screenshot reports InvalidStatus with started=false and no
+audio. websockets InvalidStatus is HTTP upgrade rejection, before the body
+of the WebSocket context runs or session.start is sent. The old cleanup warning
+was misleading in this case. It now reports SESSION_NOT_STARTED and preserves
+the numeric HTTP status. No inference about quota, permission or outage is yet
+supported: the prior attempt did not retain that numeric status.
+
+Use check-handshake.cjs through the existing app container to diagnose only the
+HTTP upgrade. It reads the existing key/project from environment, makes one GET
+upgrade request, reports its numeric status and immediately closes. It sends no
+session.start, audio or business action; it does not retry or follow redirects.
+It needs no dependencies, temporary containers, credential files or service restart.
+Do not rerun run-server.sh until this blocker is understood.
+
+Validation: 11 Node handshake tests and 16 Python probe tests passed. Provider
+events are mocked. In the sandbox Python cleanup tests used an inline async
+wrapper around the already mocked emergency-hangup function, avoiding the
+restricted thread wakeup path; no actual provider cleanup was exercised.
+No production connection or successful audio is claimed.
