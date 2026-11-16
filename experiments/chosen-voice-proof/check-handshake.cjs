@@ -55,7 +55,7 @@ function check({ request = https.request, env = process.env, timeoutMs = 10000 }
 }
 
 module.exports = { check };
-if (require.main === module) {
+if (require.main === module || module.id === '[stdin]') {
   check().then(result => {
     console.log('VOICE_HANDSHAKE: ' + JSON.stringify(result));
     process.exitCode = result.result === 'HTTP_UPGRADE_ACCEPTED' ? 0 : 2;

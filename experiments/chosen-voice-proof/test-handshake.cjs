@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { check } = require('./check-handshake.cjs');
+const { runInNewContext } = require('node:vm');
+const { readFileSync } = require('node:fs');
 const env = { OPENAI_API_KEY: 'private-test-key', MIRKAM_LIVE_PROJECT_ID: 'private-test-project' };
 
 function fake(emit) {
@@ -59,4 +61,18 @@ test('timeout destroys the single request', async () => {
   assert.equal(result.result, 'NETWORK_TIMEOUT');
   assert.equal(f.req.destroyed, true);
   assert.equal(f.calls.length, 1);
+});
+
+test('stdin entry point runs without starting a session when configuration is missing', async () => {
+  const logs = [];
+  const childProcess = { env: {}, exitCode: 0 };
+  runInNewContext(readFileSync(require.resolve('./check-handshake.cjs'), 'utf8'), {
+    require, module: { id: '[stdin]', exports: {} }, process: childProcess,
+    console: { log: value => logs.push(value) }, setTimeout, clearTimeout,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(childProcess.exitCode, 2);
+  assert.match(logs.join(''), /VOICE_HANDSHAKE:/);
+  assert.match(logs.join(''), /CONFIGURATION_MISSING/);
+  assert.match(logs.join(''), /"session_start_sent":false/);
 });
