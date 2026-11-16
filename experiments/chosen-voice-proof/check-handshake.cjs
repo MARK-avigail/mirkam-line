@@ -1,6 +1,6 @@
 // Authentication/HTTP-upgrade diagnostic only: never sends session.start or audio.
 const https = require('node:https');
-const { randomBytes } = require('node:crypto');
+const { randomBytes, createHash } = require('node:crypto');
 
 function check({ request = https.request, env = process.env, timeoutMs = 10000 } = {}) {
   return new Promise(resolve => {
@@ -16,18 +16,26 @@ function check({ request = https.request, env = process.env, timeoutMs = 10000 }
       resolve({ ...result, session_start_sent: false });
     };
     try {
+      const websocketKey = randomBytes(16).toString('base64');
+      const expectedAccept = createHash('sha1')
+        .update(websocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
       req = request('https://api.openai.com/v1/live/sessions', {
         method: 'GET', headers: {
           Authorization: 'Bearer ' + env.OPENAI_API_KEY,
           'OpenAI-Project': env.MIRKAM_LIVE_PROJECT_ID,
           Connection: 'Upgrade', Upgrade: 'websocket',
           'Sec-WebSocket-Version': '13',
-          'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+          'Sec-WebSocket-Key': websocketKey,
         },
       });
       req.once('upgrade', (response, socket) => {
         // Close transport immediately; no WebSocket application frames are sent.
-        finish({ result: 'HTTP_UPGRADE_ACCEPTED', http_status: response.statusCode });
+        const headers = response.headers || {};
+        const valid = response.statusCode === 101
+          && String(headers.upgrade || '').toLowerCase() === 'websocket'
+          && String(headers.connection || '').toLowerCase().split(',').map(x => x.trim()).includes('upgrade')
+          && headers['sec-websocket-accept'] === expectedAccept;
+        finish({ result: valid ? 'HTTP_UPGRADE_ACCEPTED' : 'INVALID_WEBSOCKET_HANDSHAKE', http_status: response.statusCode });
         socket.destroy();
       });
       req.once('response', response => {

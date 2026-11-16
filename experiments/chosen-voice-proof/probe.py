@@ -164,6 +164,9 @@ def export(capture, directory, capture_only=False):
         'session_closed': capture.closed, 'converted_to_telephone_wav': not capture_only,
         'human_listening_verified': False, 'telephone_playback_verified': False,
         'verbatim_and_complete_verified': False,
+        'speech_detected': None,
+        'sample_verdict': 'UNVERIFIED_AUDIO_SAMPLE',
+        'production_eligible': False,
         'note': 'Fixed observation window, NOT an utterance completion signal. No production integration.',
     }
     (directory / 'evidence.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))

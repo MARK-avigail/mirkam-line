@@ -4,6 +4,7 @@ const { EventEmitter } = require('node:events');
 const { check } = require('./check-handshake.cjs');
 const { runInNewContext } = require('node:vm');
 const { readFileSync } = require('node:fs');
+const { createHash } = require('node:crypto');
 const env = { OPENAI_API_KEY: 'private-test-key', MIRKAM_LIVE_PROJECT_ID: 'private-test-project' };
 
 function fake(emit) {
@@ -17,7 +18,11 @@ function fake(emit) {
 
 test('successful upgrade closes without writing an application frame', async () => {
   let closed = false;
-  const f = fake(req => req.emit('upgrade', { statusCode: 101 }, { destroy() { closed = true; } }));
+  const f = fake(req => req.emit('upgrade', { statusCode: 101, headers: {
+    upgrade: 'websocket', connection: 'keep-alive, Upgrade',
+    'sec-websocket-accept': createHash('sha1').update(f.calls[0][1].headers['Sec-WebSocket-Key']
+      + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64'),
+  } }, { destroy() { closed = true; } }));
   const result = await check({ request: f.request, env });
   assert.deepEqual(result, { result: 'HTTP_UPGRADE_ACCEPTED', http_status: 101, session_start_sent: false });
   assert.equal(closed, true);
@@ -25,6 +30,17 @@ test('successful upgrade closes without writing an application frame', async () 
   assert.equal(f.calls[0][1].headers.Authorization, 'Bearer private-test-key');
   assert.equal(f.calls[0][1].method, 'GET');
   assert.equal(JSON.stringify(f.calls).includes('session.start'), false);
+});
+
+test('a 101 response with an invalid accept hash does not prove a WebSocket connection', async () => {
+  let closed = false;
+  const f = fake(req => req.emit('upgrade', { statusCode: 101, headers: {
+    upgrade: 'websocket', connection: 'Upgrade', 'sec-websocket-accept': 'wrong',
+  } }, { destroy() { closed = true; } }));
+  const result = await check({ request: f.request, env });
+  assert.equal(result.result, 'INVALID_WEBSOCKET_HANDSHAKE');
+  assert.equal(result.session_start_sent, false);
+  assert.equal(closed, true);
 });
 
 for (const status of [301, 400, 401, 403, 429, 500, 503]) {

@@ -86,6 +86,9 @@ class ProofTests(unittest.TestCase):
                 evidence = json.load(source)
             self.assertFalse(evidence['telephone_playback_verified'])
             self.assertFalse(evidence['verbatim_and_complete_verified'])
+            self.assertIsNone(evidence['speech_detected'])
+            self.assertEqual(evidence['sample_verdict'], 'UNVERIFIED_AUDIO_SAMPLE')
+            self.assertFalse(evidence['production_eligible'])
 
     def test_mock_transport_captures_and_finalizes(self):
         socket = Socket([start(), {'type': 'session.output_audio.delta',

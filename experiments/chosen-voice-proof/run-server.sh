@@ -5,6 +5,9 @@ umask 077
 base=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 test -f "$base/probe.py"
 test "$(id -u)" = 0 || { echo 'Run on the existing server as root.'; exit 2; }
+# Serialise expensive samples across all temporary source directories.
+exec 9>/run/lock/mirkam-chosen-voice-proof.lock
+flock -n 9 || { echo 'VOICE_PROOF_ALREADY_RUNNING: no second sample started'; exit 3; }
 app_image=$(docker inspect --format '{{.Image}}' mirkam-line)
 bridge_image=$(docker inspect --format '{{.Image}}' mirkam-voice-elements)
 proof_dir=$(mktemp -d /root/mirkam-chosen-voice-proof.XXXXXXXX)
@@ -62,7 +65,7 @@ with wave.open("/proof/telephone-8k.wav", "rb") as w:
 p=Path("/proof/evidence.json")
 e=json.loads(p.read_text()); e["converted_to_telephone_wav"]=True
 p.write_text(json.dumps(e,ensure_ascii=False,indent=2))
-print("REAL_VOICE_AUDIO_RECEIVED")
+print("NONZERO_AUDIO_CAPTURED: speech and wording are not verified")
 print("TELEPHONE_WAV_OK seconds="+str(duration))
 print("PHONE_PLAYBACK_NOT_YET_TESTED")
 '
